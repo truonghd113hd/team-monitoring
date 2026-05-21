@@ -65,11 +65,20 @@ export default function HostDetailPage() {
     catch (err) { alert((err as Error).message); }
   };
 
+  const formatBps = (bps: number | null): string => {
+    if (bps == null) return '—';
+    if (bps < 1024) return `${bps.toFixed(0)} B/s`;
+    if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)} KB/s`;
+    return `${(bps / 1024 / 1024).toFixed(2)} MB/s`;
+  };
+
   const chartData = [...metrics].reverse().map(m => ({
     sampledAt: m.sampledAt,
     cpuPct: m.cpuPct,
     memPct: m.memPct,
-    diskPct: m.disk.length > 0 ? Math.max(...m.disk.map(d => d.usedPct)) : 0
+    diskPct: m.disk.length > 0 ? Math.max(...m.disk.map(d => d.usedPct)) : 0,
+    netRxKBs: m.netRxBytesPerSec != null ? m.netRxBytesPerSec / 1024 : null,
+    netTxKBs: m.netTxBytesPerSec != null ? m.netTxBytesPerSec / 1024 : null
   }));
 
   return (
@@ -90,22 +99,27 @@ export default function HostDetailPage() {
           <div className="space-y-6">
             {/* Current snapshot */}
             {latest && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
                 {[
-                  { label: 'CPU', value: latest.cpuPct },
-                  { label: 'Memory', value: latest.memPct },
-                  { label: 'Disk (max)', value: latest.disk.length ? Math.max(...latest.disk.map(d => d.usedPct)) : 0 },
-                  { label: 'Load 1m', value: latest.loadAvg[0] ?? 0, unit: '' },
+                  { label: 'CPU', value: latest.cpuPct, bar: true },
+                  { label: 'Memory', value: latest.memPct, bar: true },
+                  { label: 'Disk (max)', value: latest.disk.length ? Math.max(...latest.disk.map(d => d.usedPct)) : 0, bar: true },
+                  { label: 'Load 1m', value: latest.loadAvg[0] ?? 0, bar: false, display: (latest.loadAvg[0] ?? 0).toFixed(2) },
+                  { label: 'Network RX', value: 0, bar: false, display: formatBps(latest.netRxBytesPerSec) },
+                  { label: 'Network TX', value: 0, bar: false, display: formatBps(latest.netTxBytesPerSec) },
                 ].map(s => (
                   <div key={s.label} className="bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
                     <p className="text-xs text-slate-400 mb-2">{s.label}</p>
-                    <ResourceBar label="" value={s.unit === '' ? s.value : s.value} unit={s.unit === '' ? '' : '%'} />
+                    {s.bar
+                      ? <ResourceBar label="" value={s.value} />
+                      : <p className="text-lg font-bold dark:text-white">{s.display}</p>
+                    }
                   </div>
                 ))}
               </div>
             )}
 
-            {/* Charts */}
+            {/* CPU / Memory / Disk chart */}
             <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
               <p className="text-xs font-semibold text-slate-400 mb-3">CPU / MEMORY / DISK — LAST 24H</p>
               <MetricChart
@@ -120,6 +134,24 @@ export default function HostDetailPage() {
                 height={220}
               />
             </div>
+
+            {/* Network chart */}
+            {chartData.some(d => d.netRxKBs != null) && (
+              <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+                <p className="text-xs font-semibold text-slate-400 mb-3">NETWORK I/O — LAST 24H (KB/s)</p>
+                <MetricChart
+                  data={chartData}
+                  xKey="sampledAt"
+                  lines={[
+                    { key: 'netRxKBs', color: '#10b981', label: 'RX' },
+                    { key: 'netTxKBs', color: '#f43f5e', label: 'TX' },
+                  ]}
+                  unit=" KB/s"
+                  domain={[0, 'auto']}
+                  height={180}
+                />
+              </div>
+            )}
 
             {/* Disk mounts */}
             {latest && latest.disk.length > 0 && (

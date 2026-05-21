@@ -52,6 +52,7 @@ export default function Sidebar() {
           <span className="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full font-bold shadow-sm shadow-red-500/20">4</span>
         )}
         {navItem('/monitoring', 'monitor_heart', 'Monitoring')}
+        {navItem('/tracker', 'task_alt', 'Tracker')}
 
         <div className="pt-6 pb-2 px-3 uppercase text-[10px] font-bold text-slate-400 tracking-widest">
           Cấu hình

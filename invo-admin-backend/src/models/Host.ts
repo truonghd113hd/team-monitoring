@@ -19,6 +19,8 @@ export interface IHost extends Document {
   lastCpuPct: number | null;
   lastMemPct: number | null;
   lastDiskPct: number | null;
+  lastNetRxBytesPerSec: number | null;
+  lastNetTxBytesPerSec: number | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -52,6 +54,8 @@ const hostSchema = new Schema<IHost>({
   lastCpuPct: { type: Number, default: null },
   lastMemPct: { type: Number, default: null },
   lastDiskPct: { type: Number, default: null },
+  lastNetRxBytesPerSec: { type: Number, default: null },
+  lastNetTxBytesPerSec: { type: Number, default: null },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });

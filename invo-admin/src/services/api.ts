@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut, apiDelete } from '@/lib/api-client';
+import { apiGet, apiGetFull, apiPost, apiPut, apiDelete } from '@/lib/api-client';
 import type {
   Project,
   File,
@@ -19,7 +19,11 @@ import type {
   AlertRule,
   AlertEvent,
   UptimeResult,
-  MonitorOverviewProject
+  MonitorOverviewProject,
+  TrackerProject,
+  TrackerIssue,
+  TrackerIssueDetail,
+  TrackerComment
 } from '@/types/api';
 
 // Projects API
@@ -154,7 +158,10 @@ export const monitoringApi = {
   updateEndpoint: (id: string, data: Partial<MonitorEndpoint>) => apiPut<MonitorEndpoint>(`/monitoring/endpoints/${id}`, data),
   deleteEndpoint: (id: string) => apiDelete<{ message: string }>(`/monitoring/endpoints/${id}`),
   checkNow: (id: string) => apiPost<{ status: string; httpStatus: number | null; responseTimeMs: number | null; error: string | null }>(`/monitoring/endpoints/${id}/check-now`),
-  getEndpointHistory: (id: string, hours = 24) => apiGet<EndpointCheck[]>(`/monitoring/endpoints/${id}/history?hours=${hours}`),
+  getEndpointHistory: (id: string, hours = 24, page = 0) =>
+    apiGetFull<{ success: boolean; data: EndpointCheck[]; page: number; limit: number; total: number }>(
+      `/monitoring/endpoints/${id}/history?hours=${hours}&page=${page}&limit=20`
+    ),
   getEndpointUptime: (id: string, days = 7) => apiGet<UptimeResult>(`/monitoring/endpoints/${id}/uptime?days=${days}`),
 
   // Hosts
@@ -183,4 +190,64 @@ export const monitoringApi = {
 
   // Public status (no auth)
   getPublicStatus: (slug: string) => apiGet<any>(`/public/status/${slug}`),
+};
+
+// ── Tracker API ───────────────────────────────────────────────────────────────
+
+export const trackerApi = {
+  // GitHub resolver
+  resolveGithubProject: (url: string) =>
+    apiGet<{ githubProjectId: string; title: string; description: string }>(
+      `/tracker/github/resolve?url=${encodeURIComponent(url)}`
+    ),
+
+  // Projects
+  listProjects: () => apiGet<TrackerProject[]>('/tracker/projects'),
+  getProject: (id: string) => apiGet<TrackerProject>(`/tracker/projects/${id}`),
+  createProject: (data: { name: string; description?: string; color?: string; githubProjectId?: string | null; githubProjectUrl?: string | null }) =>
+    apiPost<TrackerProject>('/tracker/projects', data),
+  updateProject: (id: string, data: Partial<TrackerProject>) =>
+    apiPut<TrackerProject>(`/tracker/projects/${id}`, data),
+  deleteProject: (id: string) => apiDelete<{ message: string }>(`/tracker/projects/${id}`),
+
+  // Issues
+  listIssues: (params: {
+    projectId: string; status?: string; priority?: string; type?: string; page?: number;
+    assignee?: string; sheetName?: string;
+    iosStatus?: string; androidStatus?: string;
+    statusTest?: string; statusDev?: string; device?: string;
+    sortBy?: string; sortDir?: 'asc' | 'desc'; search?: string;
+  }) => {
+    const q = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v != null && v !== '').map(([k, v]) => [k, String(v)])
+    ).toString();
+    return apiGetFull<{ success: boolean; data: TrackerIssue[]; page: number; limit: number; total: number }>(
+      `/tracker/issues?${q}`
+    );
+  },
+  getFilterOptions: (projectId: string) =>
+    apiGet<{ assignees: string[]; sheetNames: string[] }>(`/tracker/projects/${projectId}/filter-options`),
+  getMilestones: (projectId: string) =>
+    apiGet<{ number: number; title: string; state: string; dueOn: string | null }[]>(`/tracker/projects/${projectId}/milestones`),
+  getIssue: (id: string) => apiGet<TrackerIssueDetail>(`/tracker/issues/${id}`),
+  createIssue: (data: Partial<TrackerIssue>) => apiPost<TrackerIssue>('/tracker/issues', data),
+  updateIssue: (id: string, data: Partial<TrackerIssue>) =>
+    apiPut<TrackerIssue>(`/tracker/issues/${id}`, data),
+  deleteIssue: (id: string) => apiDelete<{ message: string }>(`/tracker/issues/${id}`),
+
+  // Comments
+  createComment: (issueId: string, body: string) =>
+    apiPost<TrackerComment>(`/tracker/issues/${issueId}/comments`, { body }),
+  updateComment: (issueId: string, commentId: string, body: string) =>
+    apiPut<TrackerComment>(`/tracker/issues/${issueId}/comments/${commentId}`, { body }),
+  deleteComment: (issueId: string, commentId: string) =>
+    apiDelete<{ message: string }>(`/tracker/issues/${issueId}/comments/${commentId}`),
+
+  // Google Sheets
+  getSheetTabs: (url: string) =>
+    apiGet<{ spreadsheetId: string; tabs: string[] }>(`/tracker/sheet/tabs?url=${encodeURIComponent(url)}`),
+  importGoogleSheet: (projectId: string, data: { googleSheetUrl: string }) =>
+    apiPost<TrackerProject>(`/tracker/projects/${projectId}/import-sheet`, data),
+  syncNow: (projectId: string) =>
+    apiPost<{ message: string }>(`/tracker/projects/${projectId}/sync`, {}),
 };

@@ -54,6 +54,30 @@ export async function apiGet<T>(endpoint: string): Promise<T> {
   return apiFetch<T>(endpoint, { method: 'GET' });
 }
 
+/** Like apiGet but returns the full response body (including pagination meta). */
+export async function apiGetFull<T>(endpoint: string): Promise<T> {
+  const url = `${API_BASE_URL}${endpoint}`;
+  const token = getToken();
+  const response = await fetch(url, {
+    method: 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {})
+    }
+  });
+  if (response.status === 401) {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(TOKEN_KEY);
+      localStorage.removeItem('invo_auth_user');
+      window.location.href = '/login';
+    }
+    throw new ApiError(401, 'Session expired — please log in again');
+  }
+  const data = await response.json();
+  if (!response.ok) throw new ApiError(response.status, data.message || 'API request failed');
+  return data as T;
+}
+
 export async function apiPost<T>(endpoint: string, body?: any): Promise<T> {
   return apiFetch<T>(endpoint, { method: 'POST', body: JSON.stringify(body) });
 }

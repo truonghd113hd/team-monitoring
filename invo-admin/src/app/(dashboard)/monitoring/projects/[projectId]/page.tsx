@@ -7,9 +7,17 @@ import Header from '@/components/header';
 import StatusPill from '@/components/monitoring/StatusPill';
 import ResourceBar from '@/components/monitoring/ResourceBar';
 import { monitoringApi } from '@/services/api';
+import { useSocket } from '@/contexts/SocketContext';
 import type { MonitorProject, MonitorEnvironment, MonitorEndpoint, MonitorHost } from '@/types/api';
 
 type Tab = { env: MonitorEnvironment; endpoints: MonitorEndpoint[]; hosts: MonitorHost[] };
+
+const formatHostBps = (bps: number | null): string => {
+  if (bps == null) return '—';
+  if (bps < 1024) return `${bps.toFixed(0)}B/s`;
+  if (bps < 1024 * 1024) return `${(bps / 1024).toFixed(1)}KB/s`;
+  return `${(bps / 1024 / 1024).toFixed(2)}MB/s`;
+};
 
 export default function ProjectDetailPage() {
   const { projectId } = useParams<{ projectId: string }>();
@@ -22,9 +30,10 @@ export default function ProjectDetailPage() {
   const [showNewEndpoint, setShowNewEndpoint] = useState(false);
   const [showNewHost, setShowNewHost] = useState(false);
   const [envForm, setEnvForm] = useState({ name: '', color: '#3b82f6' });
-  const [epForm, setEpForm] = useState({ name: '', url: '', method: 'GET', expectedStatus: 200, timeoutMs: 10000 });
+  const [epForm, setEpForm] = useState({ name: '', url: '', method: 'GET' as 'GET' | 'POST' | 'HEAD', expectedStatus: 200, timeoutMs: 10000 });
   const [hostForm, setHostForm] = useState({ name: '', mode: 'agent', sshHost: '', sshPort: 22, sshUser: '', sshKey: '' });
   const [saving, setSaving] = useState(false);
+  const { socket } = useSocket();
 
   const load = async () => {
     try {
@@ -33,7 +42,8 @@ export default function ProjectDetailPage() {
         monitoringApi.listEnvironments(projectId)
       ]);
       setProject(proj as MonitorProject);
-      const tabsData = await Promise.all((envs as MonitorEnvironment[]).map(async env => {
+      const validEnvs = (envs as MonitorEnvironment[]).filter(env => env._id);
+      const tabsData = await Promise.all(validEnvs.map(async env => {
         const [endpoints, hosts] = await Promise.all([
           monitoringApi.listEndpoints(env._id),
           monitoringApi.listHosts(env._id)
@@ -50,6 +60,45 @@ export default function ProjectDetailPage() {
   };
 
   useEffect(() => { load(); }, [projectId]);
+
+  useEffect(() => {
+    if (!socket) return;
+
+    const onEndpointUpdated = (data: { _id: string; environmentId: string; lastStatus: string; lastResponseTimeMs: number | null; lastCheckedAt: string }) => {
+      setTabs(prev => prev.map(tab => {
+        if (tab.env._id !== data.environmentId) return tab;
+        return {
+          ...tab,
+          endpoints: tab.endpoints.map(ep =>
+            ep._id === data._id
+              ? { ...ep, lastStatus: data.lastStatus as MonitorEndpoint['lastStatus'], lastResponseTimeMs: data.lastResponseTimeMs, lastCheckedAt: new Date(data.lastCheckedAt) }
+              : ep
+          )
+        };
+      }));
+    };
+
+    const onHostUpdated = (data: { _id: string; environmentId: string; lastCpuPct: number; lastMemPct: number; lastDiskPct: number; lastNetRxBytesPerSec: number | null; lastNetTxBytesPerSec: number | null; lastSampledAt: string }) => {
+      setTabs(prev => prev.map(tab => {
+        if (tab.env._id !== data.environmentId) return tab;
+        return {
+          ...tab,
+          hosts: tab.hosts.map(h =>
+            h._id === data._id
+              ? { ...h, lastCpuPct: data.lastCpuPct, lastMemPct: data.lastMemPct, lastDiskPct: data.lastDiskPct, lastNetRxBytesPerSec: data.lastNetRxBytesPerSec, lastNetTxBytesPerSec: data.lastNetTxBytesPerSec, lastSampledAt: new Date(data.lastSampledAt) }
+              : h
+          )
+        };
+      }));
+    };
+
+    socket.on('endpoint:updated', onEndpointUpdated);
+    socket.on('host:updated', onHostUpdated);
+    return () => {
+      socket.off('endpoint:updated', onEndpointUpdated);
+      socket.off('host:updated', onHostUpdated);
+    };
+  }, [socket]);
 
   const activeTab = tabs.find(t => t.env._id === activeEnvId);
 
@@ -244,6 +293,14 @@ export default function ProjectDetailPage() {
                           <ResourceBar label="CPU" value={host.lastCpuPct ?? 0} />
                           <ResourceBar label="Memory" value={host.lastMemPct ?? 0} />
                           <ResourceBar label="Disk" value={host.lastDiskPct ?? 0} />
+                          {(host.lastNetRxBytesPerSec != null || host.lastNetTxBytesPerSec != null) && (
+                            <div className="flex items-center justify-between pt-1">
+                              <span className="text-[10px] text-slate-400">Network</span>
+                              <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400">
+                                ↓ {formatHostBps(host.lastNetRxBytesPerSec)} · ↑ {formatHostBps(host.lastNetTxBytesPerSec)}
+                              </span>
+                            </div>
+                          )}
                           <p className="text-[10px] text-slate-400 mt-2">
                             Last: {new Date(host.lastSampledAt).toLocaleTimeString()}
                           </p>
@@ -306,7 +363,7 @@ export default function ProjectDetailPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-semibold text-slate-500 mb-1">Method</label>
-                    <select value={epForm.method} onChange={e => setEpForm(f => ({ ...f, method: e.target.value }))}
+                    <select value={epForm.method} onChange={e => setEpForm(f => ({ ...f, method: e.target.value as 'GET' | 'POST' | 'HEAD' }))}
                       className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm focus:outline-none">
                       <option>GET</option><option>POST</option><option>HEAD</option>
                     </select>

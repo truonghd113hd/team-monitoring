@@ -7,6 +7,7 @@ export interface IEndpointCheck extends Document {
   httpStatus: number | null;
   responseTimeMs: number | null;
   error: string | null;
+  responseBody: Record<string, unknown> | null;
 }
 
 const endpointCheckSchema = new Schema<IEndpointCheck>({
@@ -19,7 +20,8 @@ const endpointCheckSchema = new Schema<IEndpointCheck>({
   status: { type: String, enum: ['up', 'down', 'degraded'], required: true },
   httpStatus: { type: Number, default: null },
   responseTimeMs: { type: Number, default: null },
-  error: { type: String, default: null }
+  error: { type: String, default: null },
+  responseBody: { type: Schema.Types.Mixed, default: null }
 });
 
 endpointCheckSchema.index({ endpointId: 1, checkedAt: -1 });

@@ -17,6 +17,8 @@ export interface IHostMetric extends Document {
   disk: IDiskUsage[];
   loadAvg: number[];
   uptimeSec: number;
+  netRxBytesPerSec: number | null;
+  netTxBytesPerSec: number | null;
   source: 'agent' | 'ssh';
 }
 
@@ -41,6 +43,8 @@ const hostMetricSchema = new Schema<IHostMetric>({
   disk: { type: [diskUsageSchema], default: [] },
   loadAvg: { type: [Number], default: [] },
   uptimeSec: { type: Number, default: 0 },
+  netRxBytesPerSec: { type: Number, default: null },
+  netTxBytesPerSec: { type: Number, default: null },
   source: { type: String, enum: ['agent', 'ssh'], required: true }
 });
 

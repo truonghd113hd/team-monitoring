@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useParams } from 'next/navigation';
 import Link from 'next/link';
 import Header from '@/components/header';
@@ -8,7 +8,8 @@ import StatusPill from '@/components/monitoring/StatusPill';
 import MetricChart from '@/components/monitoring/MetricChart';
 import UptimeBar from '@/components/monitoring/UptimeBar';
 import { monitoringApi } from '@/services/api';
-import type { MonitorEndpoint, EndpointCheck, UptimeResult, AlertRule } from '@/types/api';
+import { useSocket } from '@/contexts/SocketContext';
+import type { MonitorEndpoint, EndpointCheck, UptimeResult, AlertRule, HealthCheckBody, HealthCheckServiceStatus } from '@/types/api';
 
 export default function EndpointDetailPage() {
   const { projectId, endpointId } = useParams<{ projectId: string; endpointId: string }>();
@@ -22,17 +23,30 @@ export default function EndpointDetailPage() {
   const [showAddRule, setShowAddRule] = useState(false);
   const [ruleForm, setRuleForm] = useState({ name: '', condition: 'down', forMinutes: 5, renotifyMinutes: 60 });
   const [saving, setSaving] = useState(false);
+  const [checksPage, setChecksPage] = useState(0);
+  const [checksTotal, setChecksTotal] = useState(0);
+  const CHECKS_PER_PAGE = 20;
+  const checksPageRef = useRef(0);
+  const { socket } = useSocket();
+
+  const loadChecks = async (page: number) => {
+    try {
+      const res = await monitoringApi.getEndpointHistory(endpointId, 24, page);
+      setChecks(res.data as EndpointCheck[]);
+      setChecksTotal(res.total);
+    } catch (err) { console.error(err); }
+  };
 
   const load = async () => {
     try {
-      const [ep, hist, u7, u30, ruleList] = await Promise.all([
-        monitoringApi.listEndpoints('').then(() => null).catch(() => null), // skip
-        monitoringApi.getEndpointHistory(endpointId, 24),
+      const [hist, u7, u30, ruleList] = await Promise.all([
+        monitoringApi.getEndpointHistory(endpointId, 24, 0),
         monitoringApi.getEndpointUptime(endpointId, 7),
         monitoringApi.getEndpointUptime(endpointId, 30),
         monitoringApi.listAlertRules({ targetId: endpointId })
       ]);
-      setChecks(hist as EndpointCheck[]);
+      setChecks(hist.data as EndpointCheck[]);
+      setChecksTotal(hist.total);
       setUptime7(u7 as UptimeResult);
       setUptime30(u30 as UptimeResult);
       setRules(ruleList as AlertRule[]);
@@ -40,16 +54,42 @@ export default function EndpointDetailPage() {
     finally { setLoading(false); }
   };
 
-  // Load endpoint detail separately from its history because we don't have a standalone endpoint GET route
-  // so we piggyback: get the last check and reconstruct or read from cache
+  useEffect(() => { checksPageRef.current = checksPage; }, [checksPage]);
+
+  useEffect(() => { load(); setChecksPage(0); }, [endpointId]);
+
   useEffect(() => {
-    // Fetch endpoint via parent environment list would require envId — skip, infer from checks
-    load();
-  }, [endpointId]);
+    if (!socket) return;
+    const onEndpointUpdated = (data: {
+      _id: string;
+      lastStatus: string;
+      lastResponseTimeMs: number | null;
+      lastCheckedAt: string;
+      check?: Omit<EndpointCheck, '_id'> & { _id: null };
+    }) => {
+      if (data._id !== endpointId) return;
+      setChecksTotal(prev => prev + 1);
+      // Only inject into the visible list when viewing page 0
+      if (checksPageRef.current === 0 && data.check) {
+        const newCheck: EndpointCheck = {
+          ...data.check,
+          _id: `ws-${Date.now()}`,
+          checkedAt: new Date(data.lastCheckedAt)
+        };
+        setChecks(prev => [newCheck, ...prev].slice(0, CHECKS_PER_PAGE));
+      }
+    };
+    socket.on('endpoint:updated', onEndpointUpdated);
+    return () => { socket.off('endpoint:updated', onEndpointUpdated); };
+  }, [socket, endpointId]);
 
   const handleCheckNow = async () => {
     setChecking(true);
-    try { await monitoringApi.checkNow(endpointId); await load(); }
+    try {
+      await monitoringApi.checkNow(endpointId);
+      setChecksPage(0);
+      await load();
+    }
     catch (err) { alert((err as Error).message); }
     finally { setChecking(false); }
   };
@@ -75,6 +115,19 @@ export default function EndpointDetailPage() {
     checkedAt: c.checkedAt,
     responseTimeMs: c.responseTimeMs
   }));
+
+  const isHealthBody = (b: Record<string, unknown> | null): boolean =>
+    !!b && ('status' in b) && ('services' in b || 'system' in b);
+
+  const latestHealthBody = checks.length > 0 && isHealthBody(checks[0].responseBody)
+    ? checks[0].responseBody as unknown as HealthCheckBody
+    : null;
+
+  const serviceStatusColor = (s: HealthCheckServiceStatus) => {
+    if (s.status === 'ok') return 'text-green-500';
+    if (s.status === 'degraded') return 'text-amber-500';
+    return 'text-red-500';
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -131,30 +184,119 @@ export default function EndpointDetailPage() {
               />
             </div>
 
+            {/* Health check details (parsed from response body) */}
+            {latestHealthBody && (
+              <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+                <p className="text-xs font-semibold text-slate-400 mb-3">HEALTH CHECK DETAILS</p>
+
+                {/* System metrics */}
+                {latestHealthBody.system && (
+                  <div className="grid grid-cols-3 gap-3 mb-4">
+                    {latestHealthBody.system.cpuLoad1m != null && (
+                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
+                        <p className="text-xs text-slate-400">CPU Load 1m</p>
+                        <p className="text-lg font-bold dark:text-white">{latestHealthBody.system.cpuLoad1m.toFixed(2)}</p>
+                      </div>
+                    )}
+                    {latestHealthBody.system.memoryUsedPct != null && (
+                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
+                        <p className="text-xs text-slate-400">Memory</p>
+                        <p className="text-lg font-bold dark:text-white">{latestHealthBody.system.memoryUsedPct}%</p>
+                      </div>
+                    )}
+                    {latestHealthBody.system.diskUsedPct != null && (
+                      <div className="bg-slate-50 dark:bg-slate-700/50 rounded-lg p-3">
+                        <p className="text-xs text-slate-400">Disk</p>
+                        <p className="text-lg font-bold dark:text-white">{latestHealthBody.system.diskUsedPct}%</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Services */}
+                {latestHealthBody.services && Object.keys(latestHealthBody.services).length > 0 && (
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-slate-100 dark:border-slate-700">
+                        <th className="text-left py-2 px-2 text-slate-400 font-semibold">Service</th>
+                        <th className="text-center py-2 px-2 text-slate-400 font-semibold">Status</th>
+                        <th className="text-right py-2 px-2 text-slate-400 font-semibold">Response</th>
+                        <th className="text-left py-2 px-2 text-slate-400 font-semibold">Error</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {Object.entries(latestHealthBody.services).map(([name, svc]) => (
+                        <tr key={name} className="border-b border-slate-50 dark:border-slate-700/40 last:border-0">
+                          <td className="py-1.5 px-2 font-medium dark:text-white capitalize">{name}</td>
+                          <td className="py-1.5 px-2 text-center">
+                            <span className={`font-semibold uppercase ${serviceStatusColor(svc)}`}>{svc.status}</span>
+                          </td>
+                          <td className="py-1.5 px-2 text-right text-slate-500">
+                            {svc.responseTimeMs != null ? `${svc.responseTimeMs}ms` : '—'}
+                          </td>
+                          <td className="py-1.5 px-2 text-red-400 max-w-[180px] truncate">{svc.error ?? ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+
+                {latestHealthBody.uptimeSeconds != null && (
+                  <p className="text-xs text-slate-400 mt-3">
+                    Uptime: <span className="font-medium dark:text-white">{Math.floor(latestHealthBody.uptimeSeconds / 3600)}h {Math.floor((latestHealthBody.uptimeSeconds % 3600) / 60)}m</span>
+                    {latestHealthBody.timestamp && (
+                      <span className="ml-3">Sampled: {new Date(latestHealthBody.timestamp).toLocaleTimeString()}</span>
+                    )}
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Recent checks log */}
             <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
-              <p className="text-xs font-semibold text-slate-400 mb-3">RECENT CHECKS</p>
-              <div className="overflow-auto max-h-72">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-slate-400">
+                  RECENT CHECKS
+                  <span className="ml-2 font-normal">({checksTotal} total)</span>
+                </p>
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span>Page {checksPage + 1} / {Math.max(1, Math.ceil(checksTotal / CHECKS_PER_PAGE))}</span>
+                  <button
+                    onClick={() => { const p = checksPage - 1; setChecksPage(p); loadChecks(p); }}
+                    disabled={checksPage === 0}
+                    className="px-2 py-0.5 rounded border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors"
+                  >‹</button>
+                  <button
+                    onClick={() => { const p = checksPage + 1; setChecksPage(p); loadChecks(p); }}
+                    disabled={(checksPage + 1) * CHECKS_PER_PAGE >= checksTotal}
+                    className="px-2 py-0.5 rounded border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors"
+                  >›</button>
+                </div>
+              </div>
+              <div className="overflow-y-auto" style={{ maxHeight: '26rem' }}>
                 <table className="w-full text-xs">
-                  <thead>
+                  <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
                     <tr className="border-b border-slate-100 dark:border-slate-700">
                       <th className="text-left py-2 px-2 text-slate-400 font-semibold">Time</th>
                       <th className="text-center py-2 px-2 text-slate-400 font-semibold">Status</th>
                       <th className="text-right py-2 px-2 text-slate-400 font-semibold">HTTP</th>
-                      <th className="text-right py-2 px-2 text-slate-400 font-semibold">Time</th>
+                      <th className="text-right py-2 px-2 text-slate-400 font-semibold">Response</th>
                       <th className="text-left py-2 px-2 text-slate-400 font-semibold">Error</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {checks.slice(0, 50).map(c => (
+                    {checks.map(c => (
                       <tr key={c._id} className="border-b border-slate-50 dark:border-slate-700/40 last:border-0">
-                        <td className="py-1.5 px-2 text-slate-400">{new Date(c.checkedAt).toLocaleTimeString()}</td>
-                        <td className="py-1.5 px-2 text-center"><StatusPill status={c.status} /></td>
-                        <td className="py-1.5 px-2 text-right text-slate-500">{c.httpStatus ?? '—'}</td>
-                        <td className="py-1.5 px-2 text-right text-slate-500">{c.responseTimeMs != null ? `${c.responseTimeMs}ms` : '—'}</td>
-                        <td className="py-1.5 px-2 text-red-400 max-w-[200px] truncate">{c.error ?? ''}</td>
+                        <td className="py-2 px-2 text-slate-400 whitespace-nowrap">{new Date(c.checkedAt).toLocaleString()}</td>
+                        <td className="py-2 px-2 text-center"><StatusPill status={c.status} /></td>
+                        <td className="py-2 px-2 text-right text-slate-500">{c.httpStatus ?? '—'}</td>
+                        <td className="py-2 px-2 text-right text-slate-500">{c.responseTimeMs != null ? `${c.responseTimeMs}ms` : '—'}</td>
+                        <td className="py-2 px-2 text-red-400 max-w-[200px] truncate">{c.error ?? ''}</td>
                       </tr>
                     ))}
+                    {checks.length === 0 && (
+                      <tr><td colSpan={5} className="py-6 text-center text-slate-400">No checks yet</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>

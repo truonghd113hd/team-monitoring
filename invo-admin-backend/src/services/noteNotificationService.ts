@@ -2,6 +2,7 @@ import Note from '../models/Note';
 import Notification from '../models/Notification';
 import NotificationCache from '../models/NotificationCache';
 import { sendTelegramMessage } from './telegramService';
+import { emit } from './wsService';
 
 /**
  * Check notes and create notifications for next 3 days (today, tomorrow, day after tomorrow)
@@ -81,7 +82,8 @@ export const checkAndCreateNoteNotifications = async (): Promise<void> => {
               daysRemaining: daysAhead
             }
           });
-          
+          emit('notification:new', notification.toObject());
+
           // Send Telegram notification
           const telegramMessage = `
 🔔 <b>${title}</b>

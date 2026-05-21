@@ -32,7 +32,8 @@
     "googleapis": "^171.4.0",
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^8.0.3",
-    "node-ssh": "^13.2.0"
+    "node-ssh": "^13.2.0",
+    "socket.io": "^4.8.3"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",

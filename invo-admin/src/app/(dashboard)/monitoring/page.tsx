@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import Header from '@/components/header';
 import StatusPill from '@/components/monitoring/StatusPill';
 import { monitoringApi } from '@/services/api';
+import { useSocket } from '@/contexts/SocketContext';
 import type { MonitorOverviewProject } from '@/types/api';
 
 export default function MonitoringOverviewPage() {
@@ -13,6 +14,8 @@ export default function MonitoringOverviewPage() {
   const [showNewProject, setShowNewProject] = useState(false);
   const [form, setForm] = useState({ name: '', slug: '', description: '', isPublic: false });
   const [saving, setSaving] = useState(false);
+  const { socket } = useSocket();
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const load = async () => {
     try {
@@ -25,7 +28,25 @@ export default function MonitoringOverviewPage() {
     }
   };
 
+  // Debounced reload so rapid bursts of events cause a single fetch
+  const scheduleReload = () => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(() => load(), 800);
+  };
+
   useEffect(() => { load(); }, []);
+
+  useEffect(() => {
+    if (!socket) return;
+    socket.on('endpoint:updated', scheduleReload);
+    socket.on('host:updated', scheduleReload);
+    socket.on('alert:event', scheduleReload);
+    return () => {
+      socket.off('endpoint:updated', scheduleReload);
+      socket.off('host:updated', scheduleReload);
+      socket.off('alert:event', scheduleReload);
+    };
+  }, [socket]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();

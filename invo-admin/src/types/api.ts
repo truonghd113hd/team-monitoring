@@ -191,8 +191,28 @@ export interface MonitorHost {
   lastCpuPct: number | null;
   lastMemPct: number | null;
   lastDiskPct: number | null;
+  lastNetRxBytesPerSec: number | null;
+  lastNetTxBytesPerSec: number | null;
   createdAt: Date;
   updatedAt: Date;
+}
+
+export interface HealthCheckServiceStatus {
+  status: 'ok' | 'down' | 'degraded';
+  responseTimeMs: number;
+  error?: string;
+}
+
+export interface HealthCheckBody {
+  status: 'ok' | 'down' | 'degraded';
+  timestamp?: string;
+  uptimeSeconds?: number;
+  system?: {
+    cpuLoad1m?: number;
+    memoryUsedPct?: number;
+    diskUsedPct?: number;
+  };
+  services?: Record<string, HealthCheckServiceStatus>;
 }
 
 export interface EndpointCheck {
@@ -203,6 +223,7 @@ export interface EndpointCheck {
   httpStatus: number | null;
   responseTimeMs: number | null;
   error: string | null;
+  responseBody: Record<string, unknown> | null;
 }
 
 export interface HostMetric {
@@ -216,6 +237,8 @@ export interface HostMetric {
   disk: DiskUsage[];
   loadAvg: number[];
   uptimeSec: number;
+  netRxBytesPerSec: number | null;
+  netTxBytesPerSec: number | null;
   source: 'agent' | 'ssh';
 }
 
@@ -275,4 +298,95 @@ export interface UpsertNoteRequest {
   date: string;
   content: string;
   projectId?: string;
+}
+
+// ── Tracker (GitHub-style issue tracker) ─────────────────────────────────────
+
+export type TrackerIssueStatus = 'todo' | 'inprogress' | 'review' | 'done';
+export type TrackerIssuePriority = 'low' | 'medium' | 'high' | 'critical';
+export type TrackerIssueType = 'bug' | 'testcase' | 'issue';
+
+export interface TrackerProjectStats {
+  total: number;
+  todo: number;
+  inprogress: number;
+  review: number;
+  done: number;
+  hasBug?: boolean;
+  hasTestcase?: boolean;
+  hasIssue?: boolean;
+}
+
+export interface TrackerProject {
+  _id: string;
+  name: string;
+  description: string;
+  color: string;
+  githubProjectId: string | null;
+  githubProjectUrl?: string | null;
+  githubRepo: string | null;
+  githubMilestones?: Array<{ number: number; title: string; state: string }>;
+  githubStatusFieldId?: string | null;
+  githubStatusOptions?: Array<{ id: string; name: string }>;
+  googleSheetUrl?: string | null;
+  googleSheetTabs?: Array<{ name: string; sheetId: number }>;
+  googleSheetId?: string | null;
+  googleSheetLastSync?: Date | null;
+  stats?: TrackerProjectStats;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TrackerIssue {
+  _id: string;
+  projectId: string;
+  number: number;
+  title: string;
+  description: string;
+  status: TrackerIssueStatus;
+  priority: TrackerIssuePriority;
+  type: TrackerIssueType;
+  assignees: string[];
+  closedAt: Date | null;
+  githubIssueUrl?: string | null;
+  githubIssueNumber?: number | null;
+  milestoneNumber?: number | null;
+  milestoneTitle?: string | null;
+  sheetIssueId?: string | null;
+  sheetRowIndex?: number | null;
+  sheetName?: string | null;
+  // Shared (testcase + issue)
+  initialCondition?: string | null;
+  testStep?: string | null;
+  expectedResult?: string | null;
+  actualResult?: string | null;
+  // Testcase-only
+  testData?: string | null;
+  iosStatus?: string | null;
+  androidStatus?: string | null;
+  version?: string | null;
+  // Issue-only
+  module?: string | null;
+  evidence?: string | null;
+  severity?: string | null;
+  statusTest?: string | null;
+  statusDev?: string | null;
+  device?: string | null;
+  note?: string | null;
+  issueDate?: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TrackerComment {
+  _id: string;
+  issueId: string;
+  author: string;
+  body: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface TrackerIssueDetail extends TrackerIssue {
+  comments: TrackerComment[];
 }

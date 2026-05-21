@@ -19,7 +19,7 @@ export default function UptimeBar({ timeline, days = 90 }: UptimeBarProps) {
       {cells.map(cell => (
         <div
           key={cell.date}
-          title={`${cell.date}: ${cell.total === 0 ? 'No data' : `${cell.uptimePct.toFixed(2)}% uptime`}`}
+          title={`${cell.date}: ${cell.totalChecks === 0 ? 'No data' : `${cell.uptimePct.toFixed(2)}% uptime`}`}
           className={`h-5 flex-1 min-w-[3px] rounded-sm ${getColor(cell.uptimePct, cell.totalChecks)}`}
         />
       ))}

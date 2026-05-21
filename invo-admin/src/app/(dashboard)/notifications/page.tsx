@@ -1,16 +1,35 @@
 "use client"
 import { useState, useEffect } from "react"
 import { notificationsApi } from "@/services/api"
+import { useSocket } from "@/contexts/SocketContext"
 import type { Notification } from "@/types/api"
 
 export default function NotificationsPage() {
   const [notifications, setNotifications] = useState<Notification[]>([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState<'all' | 'unread' | 'issues' | 'system'>('all')
+  const { socket } = useSocket()
 
   useEffect(() => {
     fetchNotifications()
   }, [filter])
+
+  useEffect(() => {
+    if (!socket) return
+    const onNew = (notification: Notification) => {
+      setNotifications(prev => {
+        const matches =
+          filter === 'all' ||
+          (filter === 'unread' && !notification.isRead) ||
+          (filter === 'issues' && (notification.type === 'error' || notification.type === 'warning')) ||
+          (filter === 'system' && (notification.type === 'info' || notification.type === 'success'))
+        if (!matches) return prev
+        return [notification, ...prev]
+      })
+    }
+    socket.on('notification:new', onNew)
+    return () => { socket.off('notification:new', onNew) }
+  }, [socket, filter])
 
   const fetchNotifications = async () => {
     try {

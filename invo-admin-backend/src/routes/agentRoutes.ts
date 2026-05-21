@@ -17,7 +17,7 @@ router.post('/metrics', async (req: Request, res: Response): Promise<void> => {
       res.status(401).json({ success: false, message: 'Invalid token' });
       return;
     }
-    const { cpuPct, memPct, memUsedMb, memTotalMb, disk, loadAvg, uptimeSec } = req.body;
+    const { cpuPct, memPct, memUsedMb, memTotalMb, disk, loadAvg, uptimeSec, netRxBytesPerSec, netTxBytesPerSec } = req.body;
     await recordMetric(String(host._id), 'agent', {
       cpuPct: Number(cpuPct) || 0,
       memPct: Number(memPct) || 0,
@@ -25,7 +25,9 @@ router.post('/metrics', async (req: Request, res: Response): Promise<void> => {
       memTotalMb: Number(memTotalMb) || 0,
       disk: Array.isArray(disk) ? disk : [],
       loadAvg: Array.isArray(loadAvg) ? loadAvg : [],
-      uptimeSec: Number(uptimeSec) || 0
+      uptimeSec: Number(uptimeSec) || 0,
+      netRxBytesPerSec: netRxBytesPerSec != null ? Number(netRxBytesPerSec) : null,
+      netTxBytesPerSec: netTxBytesPerSec != null ? Number(netTxBytesPerSec) : null
     });
     res.json({ success: true });
   } catch (err) {

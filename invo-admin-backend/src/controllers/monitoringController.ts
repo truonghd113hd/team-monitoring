@@ -209,12 +209,15 @@ export const checkEndpointNow = async (req: Request, res: Response): Promise<voi
 export const getEndpointHistory = async (req: Request, res: Response): Promise<void> => {
   try {
     const hours = parseInt(String(req.query.hours || '24'), 10);
+    const page = Math.max(0, parseInt(String(req.query.page || '0'), 10));
+    const limit = Math.min(20, Math.max(1, parseInt(String(req.query.limit || '20'), 10)));
     const since = new Date(Date.now() - hours * 60 * 60 * 1000);
-    const checks = await EndpointCheck.find({
-      endpointId: req.params.id,
-      checkedAt: { $gte: since }
-    }).sort({ checkedAt: -1 }).limit(1000).lean();
-    res.json({ success: true, data: checks });
+    const filter = { endpointId: req.params.id, checkedAt: { $gte: since } };
+    const [checks, total] = await Promise.all([
+      EndpointCheck.find(filter).sort({ checkedAt: -1 }).skip(page * limit).limit(limit).lean(),
+      EndpointCheck.countDocuments(filter)
+    ]);
+    res.json({ success: true, data: checks, page, limit, total });
   } catch (err) {
     res.status(500).json({ success: false, message: (err as Error).message });
   }

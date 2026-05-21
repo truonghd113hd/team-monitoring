@@ -7,6 +7,7 @@ import Host from '../models/Host';
 import MonitorProject from '../models/MonitorProject';
 import MonitorEnvironment from '../models/MonitorEnvironment';
 import { sendTelegramMessage } from './telegramService';
+import { emit } from './wsService';
 
 interface ParsedCondition {
   key: 'down' | 'responseTimeMs' | 'cpuPct' | 'memPct' | 'diskPct' | 'agentSilent';
@@ -168,6 +169,16 @@ export const evaluateAllRules = async (): Promise<void> => {
           });
           const msg = `🚨 <b>[FIRING] ${targetName}</b>\n<b>Rule:</b> ${rule.name}\n${reason}\n${context}\n<i>Fired ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</i>`;
           await sendTelegramMessage(msg, chatId);
+          emit('alert:event', {
+            eventId: String(event._id),
+            ruleId: String(rule._id),
+            targetId: String(rule.targetId),
+            targetType: rule.targetType,
+            projectId: String(rule.projectId),
+            state: 'firing',
+            message: reason,
+            firedAt: event.firedAt
+          });
           console.log(`[ALERT_ENGINE] FIRED rule ${rule._id} → event ${event._id}`);
         } else {
           const lastNotifiedAge = firing.lastNotifiedAt
@@ -188,6 +199,15 @@ export const evaluateAllRules = async (): Promise<void> => {
         const chatId = await getProjectChatId(rule);
         const msg = `✅ <b>[RESOLVED] ${targetName}</b>\n<b>Rule:</b> ${rule.name}\n${context}\n<i>Recovered ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</i>`;
         await sendTelegramMessage(msg, chatId);
+        emit('alert:event', {
+          eventId: String(firing._id),
+          ruleId: String(rule._id),
+          targetId: String(rule.targetId),
+          targetType: rule.targetType,
+          projectId: String(rule.projectId),
+          state: 'recovered',
+          recoveredAt: firing.recoveredAt
+        });
         console.log(`[ALERT_ENGINE] RESOLVED rule ${rule._id}`);
       }
     } catch (err) {
