@@ -1,0 +1,58 @@
+services:
+  mongodb:
+    build:
+      context: ./docker/mongodb
+      dockerfile: Dockerfile
+    image: invo-mongodb:latest
+    container_name: invo-mongodb
+    restart: unless-stopped
+    volumes:
+      - mongo_data:/data/db
+    ports:
+      - "27017:27017"
+    networks:
+      - invo-network
+
+  backend:
+    build:
+      context: ./invo-admin-backend
+      dockerfile: Dockerfile
+    image: invo-admin-backend:latest
+    container_name: invo-backend
+    restart: unless-stopped
+    depends_on:
+      - mongodb
+    env_file:
+      - ./invo-admin-backend/.env
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/invo-admin
+      - NODE_ENV=production
+    volumes:
+      - ./invo-admin-backend/credentials.json:/app/credentials.json:ro
+    ports:
+      - "5000:5000"
+    networks:
+      - invo-network
+
+  frontend:
+    build:
+      context: ./invo-admin
+      dockerfile: Dockerfile
+    image: invo-admin-frontend:latest
+    container_name: invo-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:5000/api
+    ports:
+      - "3000:3000"
+    networks:
+      - invo-network
+
+volumes:
+  mongo_data:
+
+networks:
+  invo-network:
+    driver: bridge

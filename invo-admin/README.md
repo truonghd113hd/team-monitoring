@@ -65,6 +65,32 @@ npm run build
 npm start
 ```
 
+## Docker
+
+### Build image
+
+```bash
+docker build -t invo-admin-frontend .
+```
+
+### Run container (standalone)
+
+```bash
+docker run -d \
+  --name invo-frontend \
+  -p 3000:3000 \
+  -e NEXT_PUBLIC_API_URL=http://localhost:5000/api \
+  invo-admin-frontend
+```
+
+### Run with docker-compose (recommended)
+
+From the root of the monorepo:
+
+```bash
+docker compose up -d
+```
+
 ## Technologies Used
 
 - **Next.js 14** - React framework with App Router

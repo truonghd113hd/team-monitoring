@@ -208,6 +208,37 @@ CSV từ Google Sheets cần có các cột:
 - **Google Sheets API (googleapis)** - Direct Google Sheets integration với service account
 - **date-fns** - Date utilities
 
+## Docker
+
+### Build image
+
+```bash
+docker build -t invo-admin-backend .
+```
+
+### Run container (standalone)
+
+```bash
+docker run -d \
+  --name invo-backend \
+  -p 5000:5000 \
+  -e MONGODB_URI=mongodb://host.docker.internal:27017/invo-admin \
+  -e NODE_ENV=production \
+  -v $(pwd)/credentials.json:/app/credentials.json:ro \
+  --env-file .env \
+  invo-admin-backend
+```
+
+### Run with docker-compose (recommended)
+
+From the root of the monorepo:
+
+```bash
+docker compose up -d
+```
+
+> **Note**: `credentials.json` is mounted as a read-only volume at runtime. It is never baked into the image.
+
 ## Environment Variables
 
 ```env
