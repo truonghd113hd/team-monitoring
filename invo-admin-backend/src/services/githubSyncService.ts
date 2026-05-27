@@ -697,9 +697,9 @@ export async function updateGithubProjectStatus(
   }
 }
 
-export async function addIssueToGithubProject(projectId: string, issueNodeId: string): Promise<boolean> {
+export async function addIssueToGithubProject(projectId: string, issueNodeId: string): Promise<string | null> {
   const token = getGithubToken();
-  if (!token) return false;
+  if (!token) return null;
   try {
     const res: any = await axios.post(
       'https://api.github.com/graphql',
@@ -708,12 +708,12 @@ export async function addIssueToGithubProject(projectId: string, issueNodeId: st
     );
     if (res.data.errors) {
       console.error('[GITHUB_SYNC] addIssueToGithubProject errors:', res.data.errors);
-      return false;
+      return null;
     }
-    return true;
+    return res.data.data?.addProjectV2ItemById?.item?.id ?? null;
   } catch (err) {
     console.error('[GITHUB_SYNC] addIssueToGithubProject failed:', (err as Error).message);
-    return false;
+    return null;
   }
 }
 

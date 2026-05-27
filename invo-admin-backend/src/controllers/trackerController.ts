@@ -4,7 +4,7 @@ import axios from 'axios';
 import TrackerProject from '../models/TrackerProject';
 import TrackerIssue from '../models/TrackerIssue';
 import TrackerComment from '../models/TrackerComment';
-import { syncProjectById, createGithubIssue, updateGithubIssue, updateGithubProjectStatus, lookupProjectItemId, getGithubMilestones, buildGsIssueGithubBody, priorityToGithubLabel, repoFromIssueUrl } from '../services/githubSyncService';
+import { syncProjectById, createGithubIssue, updateGithubIssue, updateGithubProjectStatus, lookupProjectItemId, getGithubMilestones, buildGsIssueGithubBody, priorityToGithubLabel, repoFromIssueUrl, addIssueToGithubProject } from '../services/githubSyncService';
 import { parseSpreadsheetId, getSheetTabs, getSheetTabsWithIds, syncSheetForProject, writeIssueToSheet, appendIssueToSheet, mapIssueInternalStatus, deriveTestcaseStatus } from '../services/trackerSheetService';
 import type { IssueType } from '../models/TrackerIssue';
 
@@ -102,13 +102,14 @@ export const getProject = async (req: Request, res: Response): Promise<void> => 
 
 export const createProject = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { name, description, color, githubProjectId, githubProjectUrl } = req.body;
+    const { name, description, color, githubProjectId, githubProjectUrl, githubRepo } = req.body;
     const project = await TrackerProject.create({
       name,
       description,
       color,
       githubProjectId: githubProjectId?.trim() || null,
       githubProjectUrl: githubProjectUrl?.trim() || null,
+      githubRepo: githubRepo?.trim() || null,
     });
     res.status(201).json({ success: true, data: project });
     // Fire-and-forget initial sync if a GitHub project was linked
@@ -273,10 +274,73 @@ export const createIssue = async (req: Request, res: Response): Promise<void> =>
     const number = (last?.number ?? 0) + 1;
     const issueType = type || 'bug';
 
+    // Always fetch project — needed to check githubRepo even when syncGithub flag is false
+    const proj = await TrackerProject.findById(projectId).lean();
+    const shouldSyncGithub = syncGithub || !!(proj?.githubRepo && issueType === 'bug');
+
+    // ── Step 1: GitHub (must succeed before DB save) ──────────────────────────
+    let githubFields: { githubIssueId?: string; githubIssueUrl?: string; githubIssueNumber?: number } = {};
+    console.log(`[TRACKER] createIssue: type=${issueType} syncGithub=${syncGithub} shouldSyncGithub=${shouldSyncGithub} repo=${proj?.githubRepo ?? 'none'} sheetName=${sheetName ?? 'none'}`);
+    if (shouldSyncGithub && proj?.githubRepo) {
+      try {
+        const ghTitle = issueType === 'issue' && module ? `${module} | ${title}` : title;
+        const ghBody = issueType === 'issue'
+          ? buildGsIssueGithubBody({ description, initialCondition, testStep, expectedResult, actualResult, evidence, priority, severity, device, note, issueDate })
+          : description || '';
+        console.log(`[TRACKER] Creating GitHub issue: repo=${proj.githubRepo} title="${ghTitle}"`);
+        const gh = await createGithubIssue({ repo: proj.githubRepo, title: ghTitle, body: ghBody, assignees: assignees || [], milestoneNumber: milestoneNumber ?? null, labels: [priorityToGithubLabel(priority || 'medium')] });
+        if (gh) {
+          githubFields = { githubIssueId: gh.id, githubIssueUrl: gh.url, githubIssueNumber: gh.number };
+          console.log(`[TRACKER] GitHub issue created: #${gh.number} url=${gh.url}`);
+          if (proj.githubProjectId) {
+            const itemId = await addIssueToGithubProject(proj.githubProjectId, gh.id);
+            if (itemId) {
+              (githubFields as any).githubProjectItemId = itemId;
+              console.log(`[TRACKER] Added to GitHub project: itemId=${itemId}`);
+            } else {
+              console.warn(`[TRACKER] Failed to add issue to GitHub project`);
+            }
+          }
+        }
+      } catch (ghErr) {
+        console.error(`[TRACKER] GitHub issue creation failed:`, (ghErr as Error).message);
+        res.status(502).json({ success: false, message: `GitHub issue creation failed: ${(ghErr as Error).message}` });
+        return;
+      }
+    }
+
+    // ── Step 2: Google Sheet (must succeed before DB save) ────────────────────
+    let sheetFields: { sheetIssueId?: string; sheetRowIndex?: number } = {};
+    if ((issueType === 'issue' || issueType === 'testcase') && sheetName && proj?.googleSheetId) {
+      try {
+        const { sheetIssueId, sheetRowIndex } = await appendIssueToSheet(
+          proj.googleSheetId,
+          sheetName,
+          issueType as IssueType,
+          {
+            tcName: tcName || null,
+            title, description, priority,
+            initialCondition, testData, testStep, expectedResult, actualResult,
+            iosStatus, androidStatus, version,
+            module, evidence, severity, statusTest, statusDev, device, note, issueDate,
+            assignee: Array.isArray(assignees) ? (assignees[0] ?? null) : (assignees ?? null),
+          }
+        );
+        sheetFields = { sheetIssueId, sheetRowIndex };
+        console.log(`[TRACKER] GS append: ${issueType} id=${sheetIssueId} row=${sheetRowIndex} sheet="${sheetName}"`);
+      } catch (gsErr) {
+        res.status(502).json({ success: false, message: `Google Sheet append failed: ${(gsErr as Error).message}` });
+        return;
+      }
+    }
+
+    // ── Step 3: Save to DB only after all external calls succeed ──────────────
     const issue = await TrackerIssue.create({
       projectId, number, title, description, status, priority, type: issueType, assignees,
       milestoneNumber: milestoneNumber ?? null,
       milestoneTitle: milestoneTitle ?? null,
+      ...githubFields,
+      ...sheetFields,
       ...(issueType === 'issue' ? {
         sheetName: sheetName || null,
         module, initialCondition, testStep, expectedResult, actualResult,
@@ -294,56 +358,6 @@ export const createIssue = async (req: Request, res: Response): Promise<void> =>
         actualResult: actualResult || null,
       } : {}),
     });
-
-    // Push to GitHub if syncGithub is explicitly requested and project has a repo linked
-    if (syncGithub) {
-      const proj = await TrackerProject.findById(projectId).lean();
-      const repo = proj?.githubRepo || null;
-      if (repo) {
-        (async () => {
-          try {
-            const ghTitle = issueType === 'issue' && module ? `${module} | ${title}` : title;
-            const ghBody = issueType === 'issue'
-              ? buildGsIssueGithubBody({ description, initialCondition, testStep, expectedResult, actualResult, evidence, priority, severity, device, note, issueDate })
-              : description || '';
-            const gh = await createGithubIssue({ repo, title: ghTitle, body: ghBody, assignees: assignees || [], milestoneNumber: milestoneNumber ?? null, labels: [priorityToGithubLabel(priority || 'medium')] });
-            if (gh) {
-              await TrackerIssue.updateOne({ _id: issue._id }, { $set: { githubIssueId: gh.id, githubIssueUrl: gh.url, githubIssueNumber: gh.number } });
-            }
-          } catch (ghErr) {
-            console.error('[TRACKER] GitHub issue creation failed:', (ghErr as Error).message);
-          }
-        })();
-      }
-    }
-
-    // Append to Google Sheet for GS issue/testcase types
-    if ((issueType === 'testcase' || issueType === 'issue') && sheetName) {
-      (async () => {
-        try {
-          const proj = await TrackerProject.findById(projectId).lean();
-          if (proj?.googleSheetId) {
-            const { sheetIssueId, sheetRowIndex } = await appendIssueToSheet(
-              proj.googleSheetId,
-              sheetName,
-              issueType as IssueType,
-              {
-                tcName: tcName || null,
-                title, description, priority,
-                initialCondition, testData, testStep, expectedResult, actualResult,
-                iosStatus, androidStatus, version,
-                module, evidence, severity, statusTest, statusDev, device, note, issueDate,
-                assignee: Array.isArray(assignees) ? (assignees[0] ?? null) : (assignees ?? null),
-              }
-            );
-            await TrackerIssue.updateOne({ _id: issue._id }, { $set: { sheetIssueId, sheetRowIndex } });
-            console.log(`[TRACKER] GS append: ${issueType} id=${sheetIssueId} row=${sheetRowIndex} sheet="${sheetName}"`);
-          }
-        } catch (gsErr) {
-          console.error('[TRACKER] GS append failed:', (gsErr as Error).message);
-        }
-      })();
-    }
 
     res.status(201).json({ success: true, data: issue });
   } catch (err) {
@@ -695,7 +709,7 @@ export const proxyGithubImage = async (req: Request, res: Response): Promise<voi
       },
       timeout: 15_000,
     });
-    const contentType = response.headers['content-type'] || 'image/png';
+    const contentType = (response.headers['content-type'] as string) || 'image/png';
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'public, max-age=86400');
     (response.data as NodeJS.ReadableStream).pipe(res);

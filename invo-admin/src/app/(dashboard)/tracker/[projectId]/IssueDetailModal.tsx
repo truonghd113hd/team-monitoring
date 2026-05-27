@@ -405,7 +405,7 @@ export default function IssueDetailModal({ issueId, onClose, onIssueUpdated }: P
           <div className="flex items-center gap-2 min-w-0">
             {issue && (
               <>
-                <span className="text-xs text-slate-400 font-mono shrink-0">#{issue.number}</span>
+                <span className="text-xs text-slate-400 font-mono shrink-0">#{(issue.githubIssueNumber ?? 0) > 0 ? issue.githubIssueNumber : issue.number}</span>
                 {(issue.type === 'testcase' || issue.type === 'issue') && issue.sheetIssueId && (
                   <span className="text-xs text-slate-400 font-mono shrink-0 bg-slate-50 dark:bg-slate-700 px-1.5 py-0.5 rounded">
                     {issue.sheetIssueId}

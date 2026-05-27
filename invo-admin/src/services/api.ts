@@ -204,7 +204,7 @@ export const trackerApi = {
   // Projects
   listProjects: () => apiGet<TrackerProject[]>('/tracker/projects'),
   getProject: (id: string) => apiGet<TrackerProject>(`/tracker/projects/${id}`),
-  createProject: (data: { name: string; description?: string; color?: string; githubProjectId?: string | null; githubProjectUrl?: string | null }) =>
+  createProject: (data: { name: string; description?: string; color?: string; githubProjectId?: string | null; githubProjectUrl?: string | null; githubRepo?: string | null }) =>
     apiPost<TrackerProject>('/tracker/projects', data),
   updateProject: (id: string, data: Partial<TrackerProject>) =>
     apiPut<TrackerProject>(`/tracker/projects/${id}`, data),

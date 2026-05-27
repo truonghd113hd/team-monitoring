@@ -238,7 +238,11 @@ export default function TrackerProjectPage() {
   }, [search]);
 
   useEffect(() => {
-    trackerApi.getProject(projectId).then(p => setProject(p as TrackerProject)).catch(console.error);
+    trackerApi.getProject(projectId).then(p => {
+      const proj = p as TrackerProject;
+      setProject(proj);
+      if (proj.githubRepo) setForm(f => ({ ...f, syncGithub: true }));
+    }).catch(console.error);
     trackerApi.getFilterOptions(projectId).then(opts => setFilterOptions(opts as { assignees: string[]; sheetNames: string[] })).catch(console.error);
   }, [projectId]);
 
@@ -665,7 +669,7 @@ export default function TrackerProjectPage() {
                   onClick={() => setSelectedIssueId(issue._id)}
                   className="grid grid-cols-[3rem_1.5rem_6rem_1fr_6rem_7rem_7rem_6rem] gap-3 px-4 py-3 items-center hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group cursor-pointer"
                 >
-                  <span className="text-xs text-slate-400 font-mono">#{issue.number}</span>
+                  <span className="text-xs text-slate-400 font-mono">#{(issue.githubIssueNumber ?? 0) > 0 ? issue.githubIssueNumber : issue.number}</span>
                   <span title="Issue"><span className="material-symbols-outlined text-sm text-orange-400">assignment_late</span></span>
                   <span className="text-xs text-slate-500 font-mono truncate">{issue.sheetIssueId ?? `#${issue.number}`}</span>
                   <span className="flex flex-col min-w-0">
@@ -703,7 +707,7 @@ export default function TrackerProjectPage() {
                   onClick={() => setSelectedIssueId(issue._id)}
                   className="grid grid-cols-[3rem_1.5rem_6rem_1fr_6rem_6rem_6rem_5rem] gap-3 px-4 py-3 items-center hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group cursor-pointer"
                 >
-                  <span className="text-xs text-slate-400 font-mono">#{issue.number}</span>
+                  <span className="text-xs text-slate-400 font-mono">#{(issue.githubIssueNumber ?? 0) > 0 ? issue.githubIssueNumber : issue.number}</span>
                   <span title="Test Case">
                     <span className="material-symbols-outlined text-sm text-blue-400">labs</span>
                   </span>
@@ -749,7 +753,7 @@ export default function TrackerProjectPage() {
                   onClick={() => setSelectedIssueId(issue._id)}
                   className="grid grid-cols-[3rem_1.5rem_1fr_7rem_8rem_7rem_5.5rem_1.5rem] gap-3 px-4 py-3 items-center hover:bg-slate-50 dark:hover:bg-slate-700/30 transition-colors group cursor-pointer"
                 >
-                  <span className="text-xs text-slate-400 font-mono">#{issue.number}</span>
+                  <span className="text-xs text-slate-400 font-mono">#{(issue.githubIssueNumber ?? 0) > 0 ? issue.githubIssueNumber : issue.number}</span>
                   <span title={issue.type === 'bug' ? 'Bug' : 'GS Issue'}>
                     <span className={`material-symbols-outlined text-sm ${issue.type === 'bug' ? 'text-red-400' : 'text-orange-400'}`}>
                       {issue.type === 'bug' ? 'bug_report' : 'assignment_late'}

@@ -4,6 +4,7 @@ services:
       context: ./docker/mongodb
       dockerfile: Dockerfile
     image: invo-mongodb:latest
+    pull_policy: build
     container_name: invo-mongodb
     restart: unless-stopped
     volumes:
@@ -18,6 +19,7 @@ services:
       context: ./invo-admin-backend
       dockerfile: Dockerfile
     image: invo-admin-backend:latest
+    pull_policy: build
     container_name: invo-backend
     restart: unless-stopped
     depends_on:
@@ -30,7 +32,7 @@ services:
     volumes:
       - ./invo-admin-backend/credentials.json:/app/credentials.json:ro
     ports:
-      - "5000:5000"
+      - "5000:3300"
     networks:
       - invo-network
 
@@ -38,13 +40,16 @@ services:
     build:
       context: ./invo-admin
       dockerfile: Dockerfile
+      args:
+        - NEXT_PUBLIC_API_URL=http://10.0.20.25:5000/api
     image: invo-admin-frontend:latest
+    pull_policy: build
     container_name: invo-frontend
     restart: unless-stopped
     depends_on:
       - backend
     environment:
-      - NEXT_PUBLIC_API_URL=http://localhost:5000/api
+      - NEXT_PUBLIC_API_URL=http://10.0.20.25:5000/api
     ports:
       - "3000:3000"
     networks:

@@ -39,7 +39,7 @@ export default function TrackerHomePage() {
   const [loading, setLoading] = useState(true);
   const [showNew, setShowNew] = useState(false);
   const [importTab, setImportTab] = useState<ImportTab>('manual');
-  const [form, setForm] = useState({ name: '', description: '', color: '#3b82f6', githubProjectId: '', githubProjectUrl: '' });
+  const [form, setForm] = useState({ name: '', description: '', color: '#3b82f6', githubProjectId: '', githubProjectUrl: '', githubRepo: '' });
   const [githubUrl, setGithubUrl] = useState('');
   const [resolving, setResolving] = useState(false);
   const [resolveError, setResolveError] = useState('');
@@ -69,7 +69,7 @@ export default function TrackerHomePage() {
   const resetModal = () => {
     setShowNew(false);
     setImportTab('manual');
-    setForm({ name: '', description: '', color: '#3b82f6', githubProjectId: '', githubProjectUrl: '' });
+    setForm({ name: '', description: '', color: '#3b82f6', githubProjectId: '', githubProjectUrl: '', githubRepo: '' });
     setGithubUrl(''); setResolveError('');
     setSheetUrl(''); setSheetError('');
   };
@@ -99,6 +99,7 @@ export default function TrackerHomePage() {
         ...form,
         githubProjectId: importTab === 'github' ? form.githubProjectId.trim() || null : null,
         githubProjectUrl: importTab === 'github' ? form.githubProjectUrl.trim() || null : null,
+        githubRepo: importTab === 'github' ? form.githubRepo.trim() || null : null,
       }) as TrackerProject;
 
       if (importTab === 'sheet' && sheetUrl.trim()) {
@@ -263,6 +264,12 @@ export default function TrackerHomePage() {
                       Linked: <span className="font-mono">{form.githubProjectId}</span>
                     </p>
                   )}
+                  <div className="mt-2">
+                    <label className="block text-xs font-semibold text-slate-500 mb-1">GitHub Repo <span className="font-normal text-slate-400">(owner/repo — for creating issues)</span></label>
+                    <input value={form.githubRepo} onChange={e => setForm(f => ({ ...f, githubRepo: e.target.value }))}
+                      className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm focus:outline-none"
+                      placeholder="e.g. invo-ring/invo-issues" />
+                  </div>
                 </div>
               )}
 

@@ -189,7 +189,7 @@ export default function IssueDetailPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <Header title={`#${issue.number} ${issue.title}`} />
+      <Header title={`#${(issue.githubIssueNumber ?? 0) > 0 ? issue.githubIssueNumber : issue.number} ${issue.title}`} />
       <main className="flex-1 p-8 overflow-auto">
         {/* Breadcrumb */}
         <div className="flex items-center gap-2 text-sm text-slate-400 mb-6">
@@ -197,7 +197,7 @@ export default function IssueDetailPage() {
           <span>/</span>
           <Link href={`/tracker/${projectId}`} className="hover:text-primary">Project</Link>
           <span>/</span>
-          <span className="dark:text-white font-medium">#{issue.number}</span>
+          <span className="dark:text-white font-medium">#{(issue.githubIssueNumber ?? 0) > 0 ? issue.githubIssueNumber : issue.number}</span>
         </div>
 
         <div className="max-w-3xl mx-auto space-y-6">
@@ -209,7 +209,7 @@ export default function IssueDetailPage() {
                 <div className="flex items-start justify-between gap-4 mb-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
-                      <span className="text-xs text-slate-400 font-mono">#{issue.number}</span>
+                      <span className="text-xs text-slate-400 font-mono">#{(issue.githubIssueNumber ?? 0) > 0 ? issue.githubIssueNumber : issue.number}</span>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_COLOR[issue.status]}`}>
                         {issue.status === 'inprogress' ? 'In Progress' : issue.status.charAt(0).toUpperCase() + issue.status.slice(1)}
                       </span>
