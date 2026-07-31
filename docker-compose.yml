@@ -9,8 +9,6 @@ services:
     restart: unless-stopped
     volumes:
       - mongo_data:/data/db
-    ports:
-      - "27017:27017"
     networks:
       - invo-network
 
@@ -33,7 +31,7 @@ services:
       - ./invo-admin-backend/credentials.json:/app/credentials.json:ro
       - ./invo-admin-backend/ssh-keys:/app/ssh-keys:ro
     ports:
-      - "5000:5000"
+      - "127.0.0.1:5001:5000"
     networks:
       - invo-network
 
@@ -42,7 +40,7 @@ services:
       context: ./invo-admin
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=http://10.0.20.25:5000/api
+        - NEXT_PUBLIC_API_URL=https://api.monitoring.invoring.com/api
     image: invo-admin-frontend:latest
     pull_policy: build
     container_name: invo-frontend
@@ -50,9 +48,9 @@ services:
     depends_on:
       - backend
     environment:
-      - NEXT_PUBLIC_API_URL=http://10.0.20.25:5000/api
+      - NEXT_PUBLIC_API_URL=https://api.monitoring.invoring.com/api
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3001:3000"
     networks:
       - invo-network
 
