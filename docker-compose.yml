@@ -31,8 +31,9 @@ services:
       - NODE_ENV=production
     volumes:
       - ./invo-admin-backend/credentials.json:/app/credentials.json:ro
+      - ./invo-admin-backend/ssh-keys:/app/ssh-keys:ro
     ports:
-      - "5000:3300"
+      - "5000:5000"
     networks:
       - invo-network
 

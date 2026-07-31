@@ -5,7 +5,7 @@ import {
   listEnvironments, createEnvironment, updateEnvironment, deleteEnvironment,
   listEndpoints, createEndpoint, updateEndpoint, deleteEndpoint,
   checkEndpointNow, getEndpointHistory, getEndpointUptime,
-  listHosts, createHost, updateHost, deleteHost, rotateHostToken, getHostMetrics,
+  listHosts, listHostsByProject, createHost, updateHost, deleteHost, rotateHostToken, getHostMetrics,
   listAlertRules, createAlertRule, updateAlertRule, deleteAlertRule, listAlertEvents
 } from '../controllers/monitoringController';
 import { requireAdmin, requireEditor } from '../middleware/auth';
@@ -34,6 +34,7 @@ router.get('/environments/:environmentId/endpoints', listEndpoints);
 router.post('/environments/:environmentId/endpoints', requireEditor, createEndpoint);
 router.get('/environments/:environmentId/hosts', listHosts);
 router.post('/environments/:environmentId/hosts', requireEditor, createHost);
+router.get('/projects/:projectId/hosts', listHostsByProject);
 
 // Endpoints — viewers read; editors write; check-now allowed for editors+
 router.put('/endpoints/:id', requireEditor, updateEndpoint);

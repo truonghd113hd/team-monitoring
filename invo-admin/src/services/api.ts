@@ -166,6 +166,7 @@ export const monitoringApi = {
 
   // Hosts
   listHosts: (environmentId: string) => apiGet<MonitorHost[]>(`/monitoring/environments/${environmentId}/hosts`),
+  listHostsByProject: (projectId: string) => apiGet<MonitorHost[]>(`/monitoring/projects/${projectId}/hosts`),
   createHost: (environmentId: string, data: Partial<MonitorHost & { sshConfig?: object }>) =>
     apiPost<MonitorHost>(`/monitoring/environments/${environmentId}/hosts`, data),
   updateHost: (id: string, data: Partial<MonitorHost & { sshConfig?: object }>) => apiPut<MonitorHost>(`/monitoring/hosts/${id}`, data),
@@ -187,6 +188,10 @@ export const monitoringApi = {
     const params = filters ? new URLSearchParams(Object.entries(filters).filter(([,v]) => v != null).map(([k,v]) => [k, String(v)]) as any).toString() : '';
     return apiGet<AlertEvent[]>(`/monitoring/alert-events${params ? `?${params}` : ''}`);
   },
+  getAlertEventHistory: (targetId: string, page = 0, limit = 20) =>
+    apiGetFull<{ success: boolean; data: AlertEvent[]; page: number; limit: number; total: number }>(
+      `/monitoring/alert-events?targetId=${targetId}&page=${page}&limit=${limit}`
+    ),
 
   // Public status (no auth)
   getPublicStatus: (slug: string) => apiGet<any>(`/public/status/${slug}`),

@@ -8,16 +8,17 @@ import MonitorProject from '../models/MonitorProject';
 import MonitorEnvironment from '../models/MonitorEnvironment';
 import { sendTelegramMessage } from './telegramService';
 import { emit } from './wsService';
+import { restartPm2Process } from './pm2RestartService';
 
 interface ParsedCondition {
-  key: 'down' | 'responseTimeMs' | 'cpuPct' | 'memPct' | 'diskPct' | 'agentSilent';
+  key: 'down' | '5xx' | 'responseTimeMs' | 'cpuPct' | 'memPct' | 'diskPct' | 'agentSilent';
   op?: '>' | '<' | '>=' | '<=';
   threshold?: number;
 }
 
 const parseCondition = (raw: string): ParsedCondition | null => {
   const c = raw.trim();
-  if (c === 'down' || c === 'agentSilent') return { key: c };
+  if (c === 'down' || c === '5xx' || c === 'agentSilent') return { key: c };
   const m = c.match(/^(responseTimeMs|cpuPct|memPct|diskPct)\s*(>=|<=|>|<)\s*(\d+(?:\.\d+)?)\s*$/);
   if (!m) return null;
   return {
@@ -40,6 +41,7 @@ const compare = (value: number, op: ParsedCondition['op'], threshold: number): b
 const sampleViolates = (sample: any, cond: ParsedCondition, targetType: 'endpoint' | 'host'): boolean => {
   if (targetType === 'endpoint') {
     if (cond.key === 'down') return sample.status === 'down';
+    if (cond.key === '5xx') return typeof sample.httpStatus === 'number' && sample.httpStatus >= 500;
     if (cond.key === 'responseTimeMs') {
       if (typeof sample.responseTimeMs !== 'number') return false;
       return compare(sample.responseTimeMs, cond.op, cond.threshold!);
@@ -104,7 +106,7 @@ const evaluateRule = async (rule: IAlertRule, cond: ParsedCondition): Promise<Ev
     if (samples.length === 0) return { violates: false, latestSample: null, reason: 'no samples in window' };
     const allBad = samples.every(s => sampleViolates(s, cond, 'endpoint'));
     const reason = allBad
-      ? cond.key === 'down'
+      ? cond.key === 'down' || cond.key === '5xx'
         ? `${samples.length} consecutive failures (last HTTP ${samples[0].httpStatus ?? 'n/a'})`
         : `${cond.key} ${cond.op} ${cond.threshold} for ${rule.forMinutes}m`
       : 'condition cleared';
@@ -139,6 +141,17 @@ const evaluateRule = async (rule: IAlertRule, cond: ParsedCondition): Promise<Ev
   return { violates: allBad, latestSample: samples[0], reason };
 };
 
+const runRestartAction = async (rule: IAlertRule): Promise<string> => {
+  if (!rule.restartOnFire || !rule.restartHostId || !rule.restartPm2Process) return '';
+  const host = await Host.findById(rule.restartHostId);
+  if (!host) return `\n⚠️ Restart skipped: host ${rule.restartHostId} not found`;
+  const result = await restartPm2Process(host, rule.restartPm2Process);
+  console.log(`[ALERT_ENGINE] pm2 restart ${rule.restartPm2Process}@${host.name}: ${result.ok ? 'OK' : 'FAILED'} — ${result.message}`);
+  return result.ok
+    ? `\n🔧 Restarted pm2 process <b>${rule.restartPm2Process}</b> on ${host.name}`
+    : `\n⚠️ pm2 restart failed on ${host.name}: ${result.message}`;
+};
+
 export const evaluateAllRules = async (): Promise<void> => {
   const rules = await AlertRule.find({ enabled: true });
   console.log(`[ALERT_ENGINE] Evaluating ${rules.length} rules`);
@@ -167,7 +180,8 @@ export const evaluateAllRules = async (): Promise<void> => {
             lastNotifiedAt: new Date(),
             message: reason
           });
-          const msg = `🚨 <b>[FIRING] ${targetName}</b>\n<b>Rule:</b> ${rule.name}\n${reason}\n${context}\n<i>Fired ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</i>`;
+          const restartNote = await runRestartAction(rule);
+          const msg = `🚨 <b>[FIRING] ${targetName}</b>\n<b>Rule:</b> ${rule.name}\n${reason}\n${context}${restartNote}\n<i>Fired ${new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh' })}</i>`;
           await sendTelegramMessage(msg, chatId);
           emit('alert:event', {
             eventId: String(event._id),
@@ -185,7 +199,8 @@ export const evaluateAllRules = async (): Promise<void> => {
             ? Date.now() - firing.lastNotifiedAt.getTime()
             : Infinity;
           if (lastNotifiedAge > rule.renotifyMinutes * 60 * 1000) {
-            const msg = `🔁 <b>[STILL FIRING] ${targetName}</b>\n<b>Rule:</b> ${rule.name}\n${reason}\n${context}`;
+            const restartNote = await runRestartAction(rule);
+            const msg = `🔁 <b>[STILL FIRING] ${targetName}</b>\n<b>Rule:</b> ${rule.name}\n${reason}\n${context}${restartNote}`;
             await sendTelegramMessage(msg, chatId);
             firing.lastNotifiedAt = new Date();
             await firing.save();

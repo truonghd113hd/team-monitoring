@@ -244,6 +244,15 @@ export const listHosts = async (req: Request, res: Response): Promise<void> => {
   }
 };
 
+export const listHostsByProject = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const hosts = await Host.find({ projectId: req.params.projectId, mode: 'ssh' }).sort({ createdAt: 1 });
+    res.json({ success: true, data: hosts });
+  } catch (err) {
+    res.status(500).json({ success: false, message: (err as Error).message });
+  }
+};
+
 export const createHost = async (req: Request, res: Response): Promise<void> => {
   try {
     const env = await MonitorEnvironment.findById(req.params.environmentId);
@@ -347,15 +356,22 @@ export const deleteAlertRule = async (req: Request, res: Response): Promise<void
 
 export const listAlertEvents = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { state, projectId, limit } = req.query;
+    const { state, projectId, targetId, limit, page } = req.query;
     const filter: any = {};
     if (state) filter.state = state;
     if (projectId) filter.projectId = projectId;
-    const events = await AlertEvent.find(filter)
-      .sort({ firedAt: -1 })
-      .limit(parseInt(String(limit || '50'), 10))
-      .lean();
-    res.json({ success: true, data: events });
+    if (targetId) filter.targetId = targetId;
+    const limitNum = parseInt(String(limit || '50'), 10);
+    const pageNum = parseInt(String(page || '0'), 10);
+    const [events, total] = await Promise.all([
+      AlertEvent.find(filter)
+        .sort({ firedAt: -1 })
+        .skip(pageNum * limitNum)
+        .limit(limitNum)
+        .lean(),
+      AlertEvent.countDocuments(filter)
+    ]);
+    res.json({ success: true, data: events, page: pageNum, limit: limitNum, total });
   } catch (err) {
     res.status(500).json({ success: false, message: (err as Error).message });
   }

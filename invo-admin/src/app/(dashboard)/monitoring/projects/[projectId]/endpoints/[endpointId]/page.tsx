@@ -9,7 +9,7 @@ import MetricChart from '@/components/monitoring/MetricChart';
 import UptimeBar from '@/components/monitoring/UptimeBar';
 import { monitoringApi } from '@/services/api';
 import { useSocket } from '@/contexts/SocketContext';
-import type { MonitorEndpoint, EndpointCheck, UptimeResult, AlertRule, HealthCheckBody, HealthCheckServiceStatus } from '@/types/api';
+import type { MonitorEndpoint, EndpointCheck, UptimeResult, AlertRule, AlertEvent, HealthCheckBody, HealthCheckServiceStatus, MonitorHost } from '@/types/api';
 
 export default function EndpointDetailPage() {
   const { projectId, endpointId } = useParams<{ projectId: string; endpointId: string }>();
@@ -21,13 +21,29 @@ export default function EndpointDetailPage() {
   const [loading, setLoading] = useState(true);
   const [checking, setChecking] = useState(false);
   const [showAddRule, setShowAddRule] = useState(false);
-  const [ruleForm, setRuleForm] = useState({ name: '', condition: 'down', forMinutes: 5, renotifyMinutes: 60 });
+  const [ruleForm, setRuleForm] = useState({
+    name: '', condition: 'down', forMinutes: 5, renotifyMinutes: 60,
+    restartOnFire: false, restartHostId: '', restartPm2Process: ''
+  });
   const [saving, setSaving] = useState(false);
+  const [hosts, setHosts] = useState<MonitorHost[]>([]);
   const [checksPage, setChecksPage] = useState(0);
   const [checksTotal, setChecksTotal] = useState(0);
   const CHECKS_PER_PAGE = 20;
   const checksPageRef = useRef(0);
+  const [alertEvents, setAlertEvents] = useState<AlertEvent[]>([]);
+  const [alertEventsPage, setAlertEventsPage] = useState(0);
+  const [alertEventsTotal, setAlertEventsTotal] = useState(0);
+  const ALERT_EVENTS_PER_PAGE = 20;
   const { socket } = useSocket();
+
+  const loadAlertEvents = async (page: number) => {
+    try {
+      const res = await monitoringApi.getAlertEventHistory(endpointId, page, ALERT_EVENTS_PER_PAGE);
+      setAlertEvents(res.data as AlertEvent[]);
+      setAlertEventsTotal(res.total);
+    } catch (err) { console.error(err); }
+  };
 
   const loadChecks = async (page: number) => {
     try {
@@ -39,24 +55,29 @@ export default function EndpointDetailPage() {
 
   const load = async () => {
     try {
-      const [hist, u7, u30, ruleList] = await Promise.all([
+      const [hist, u7, u30, ruleList, hostList, events] = await Promise.all([
         monitoringApi.getEndpointHistory(endpointId, 24, 0),
         monitoringApi.getEndpointUptime(endpointId, 7),
         monitoringApi.getEndpointUptime(endpointId, 30),
-        monitoringApi.listAlertRules({ targetId: endpointId })
+        monitoringApi.listAlertRules({ targetId: endpointId }),
+        monitoringApi.listHostsByProject(projectId),
+        monitoringApi.getAlertEventHistory(endpointId, 0, ALERT_EVENTS_PER_PAGE)
       ]);
       setChecks(hist.data as EndpointCheck[]);
       setChecksTotal(hist.total);
       setUptime7(u7 as UptimeResult);
       setUptime30(u30 as UptimeResult);
       setRules(ruleList as AlertRule[]);
+      setHosts(hostList as MonitorHost[]);
+      setAlertEvents(events.data as AlertEvent[]);
+      setAlertEventsTotal(events.total);
     } catch (err) { console.error(err); }
     finally { setLoading(false); }
   };
 
   useEffect(() => { checksPageRef.current = checksPage; }, [checksPage]);
 
-  useEffect(() => { load(); setChecksPage(0); }, [endpointId]);
+  useEffect(() => { load(); setChecksPage(0); setAlertEventsPage(0); }, [endpointId]);
 
   useEffect(() => {
     if (!socket) return;
@@ -83,6 +104,17 @@ export default function EndpointDetailPage() {
     return () => { socket.off('endpoint:updated', onEndpointUpdated); };
   }, [socket, endpointId]);
 
+  useEffect(() => {
+    if (!socket) return;
+    const onAlertEvent = (data: { targetId: string }) => {
+      if (data.targetId !== endpointId) return;
+      if (alertEventsPage === 0) loadAlertEvents(0);
+      else setAlertEventsTotal(prev => prev + 1);
+    };
+    socket.on('alert:event', onAlertEvent);
+    return () => { socket.off('alert:event', onAlertEvent); };
+  }, [socket, endpointId, alertEventsPage]);
+
   const handleCheckNow = async () => {
     setChecking(true);
     try {
@@ -98,8 +130,14 @@ export default function EndpointDetailPage() {
     e.preventDefault();
     setSaving(true);
     try {
-      await monitoringApi.createAlertRule({ ...ruleForm, targetType: 'endpoint', targetId: endpointId, projectId });
+      await monitoringApi.createAlertRule({
+        ...ruleForm,
+        restartHostId: ruleForm.restartOnFire ? ruleForm.restartHostId || null : null,
+        restartPm2Process: ruleForm.restartOnFire ? ruleForm.restartPm2Process || null : null,
+        targetType: 'endpoint', targetId: endpointId, projectId
+      });
       setShowAddRule(false);
+      setRuleForm({ name: '', condition: 'down', forMinutes: 5, renotifyMinutes: 60, restartOnFire: false, restartHostId: '', restartPm2Process: '' });
       await load();
     } catch (err) { alert((err as Error).message); }
     finally { setSaving(false); }
@@ -316,6 +354,11 @@ export default function EndpointDetailPage() {
                         <span className="font-medium dark:text-white">{r.name}</span>
                         <span className="ml-2 font-mono text-xs text-slate-400">{r.condition}</span>
                         <span className="ml-2 text-xs text-slate-400">for {r.forMinutes}m</span>
+                        {r.restartOnFire && r.restartPm2Process && (
+                          <span className="ml-2 text-xs text-amber-500">
+                            <span className="material-symbols-outlined text-xs align-middle">restart_alt</span> {r.restartPm2Process}
+                          </span>
+                        )}
                       </div>
                       <button onClick={() => handleDeleteRule(r._id)} className="text-slate-400 hover:text-red-500 transition-colors">
                         <span className="material-symbols-outlined text-sm">delete</span>
@@ -324,6 +367,56 @@ export default function EndpointDetailPage() {
                   ))}
                 </div>
               )}
+            </div>
+
+            {/* Alert history */}
+            <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-semibold text-slate-400">
+                  ALERT HISTORY
+                  <span className="ml-2 font-normal">({alertEventsTotal} total)</span>
+                </p>
+                <div className="flex items-center gap-2 text-xs text-slate-400">
+                  <span>Page {alertEventsPage + 1} / {Math.max(1, Math.ceil(alertEventsTotal / ALERT_EVENTS_PER_PAGE))}</span>
+                  <button
+                    onClick={() => { const p = alertEventsPage - 1; setAlertEventsPage(p); loadAlertEvents(p); }}
+                    disabled={alertEventsPage === 0}
+                    className="px-2 py-0.5 rounded border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors"
+                  >‹</button>
+                  <button
+                    onClick={() => { const p = alertEventsPage + 1; setAlertEventsPage(p); loadAlertEvents(p); }}
+                    disabled={(alertEventsPage + 1) * ALERT_EVENTS_PER_PAGE >= alertEventsTotal}
+                    className="px-2 py-0.5 rounded border border-slate-200 dark:border-slate-600 hover:bg-slate-100 dark:hover:bg-slate-700 disabled:opacity-30 transition-colors"
+                  >›</button>
+                </div>
+              </div>
+              <div className="overflow-y-auto" style={{ maxHeight: '26rem' }}>
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-white dark:bg-slate-800 z-10">
+                    <tr className="border-b border-slate-100 dark:border-slate-700">
+                      <th className="text-left py-2 px-2 text-slate-400 font-semibold">Fired</th>
+                      <th className="text-center py-2 px-2 text-slate-400 font-semibold">State</th>
+                      <th className="text-left py-2 px-2 text-slate-400 font-semibold">Message</th>
+                      <th className="text-left py-2 px-2 text-slate-400 font-semibold">Recovered</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {alertEvents.map(ev => (
+                      <tr key={ev._id} className="border-b border-slate-50 dark:border-slate-700/40 last:border-0">
+                        <td className="py-2 px-2 text-slate-400 whitespace-nowrap">{new Date(ev.firedAt).toLocaleString()}</td>
+                        <td className="py-2 px-2 text-center">
+                          <span className={`font-semibold uppercase text-xs ${ev.state === 'firing' ? 'text-red-500' : 'text-green-500'}`}>{ev.state}</span>
+                        </td>
+                        <td className="py-2 px-2 text-slate-500 max-w-[320px] truncate">{ev.message}</td>
+                        <td className="py-2 px-2 text-slate-400 whitespace-nowrap">{ev.recoveredAt ? new Date(ev.recoveredAt).toLocaleString() : '—'}</td>
+                      </tr>
+                    ))}
+                    {alertEvents.length === 0 && (
+                      <tr><td colSpan={4} className="py-6 text-center text-slate-400">No alert events yet</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         )}
@@ -344,6 +437,7 @@ export default function EndpointDetailPage() {
                   <select value={ruleForm.condition} onChange={e => setRuleForm(f => ({ ...f, condition: e.target.value }))}
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm focus:outline-none">
                     <option value="down">down</option>
+                    <option value="5xx">5xx (HTTP 500+)</option>
                     <option value="responseTimeMs>2000">responseTimeMs &gt; 2000</option>
                     <option value="responseTimeMs>5000">responseTimeMs &gt; 5000</option>
                   </select>
@@ -362,6 +456,31 @@ export default function EndpointDetailPage() {
                     <input type="number" min={5} value={ruleForm.renotifyMinutes} onChange={e => setRuleForm(f => ({ ...f, renotifyMinutes: parseInt(e.target.value) }))}
                       className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm focus:outline-none" />
                   </div>
+                </div>
+                <div className="pt-1 border-t border-slate-100 dark:border-slate-700">
+                  <label className="flex items-center gap-2 text-xs font-semibold text-slate-500 mb-2 mt-2 cursor-pointer">
+                    <input type="checkbox" checked={ruleForm.restartOnFire} onChange={e => setRuleForm(f => ({ ...f, restartOnFire: e.target.checked }))}
+                      className="rounded border-slate-300" />
+                    Restart pm2 process via SSH when firing
+                  </label>
+                  {ruleForm.restartOnFire && (
+                    <div className="space-y-2">
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 mb-1">Host</label>
+                        <select required value={ruleForm.restartHostId} onChange={e => setRuleForm(f => ({ ...f, restartHostId: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm focus:outline-none">
+                          <option value="">Select a host…</option>
+                          {hosts.map(h => <option key={h._id} value={h._id}>{h.name}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-slate-500 mb-1">pm2 process name</label>
+                        <input required value={ruleForm.restartPm2Process} onChange={e => setRuleForm(f => ({ ...f, restartPm2Process: e.target.value }))}
+                          className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm font-mono focus:outline-none"
+                          placeholder="api-server" />
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2 justify-end pt-1">
                   <button type="button" onClick={() => setShowAddRule(false)} className="px-4 py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>

@@ -9,6 +9,9 @@ export interface IAlertRule extends Document {
   forMinutes: number;
   renotifyMinutes: number;
   enabled: boolean;
+  restartOnFire: boolean;
+  restartHostId: mongoose.Types.ObjectId | null;
+  restartPm2Process: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -23,11 +26,15 @@ const alertRuleSchema = new Schema<IAlertRule>({
     index: true
   },
   name: { type: String, required: true, trim: true },
-  // e.g. "down", "responseTimeMs>2000", "cpuPct>80", "memPct>90", "diskPct>85", "agentSilent"
+  // e.g. "down", "5xx", "responseTimeMs>2000", "cpuPct>80", "memPct>90", "diskPct>85", "agentSilent"
   condition: { type: String, required: true, trim: true },
   forMinutes: { type: Number, default: 5 },
   renotifyMinutes: { type: Number, default: 60 },
   enabled: { type: Boolean, default: true },
+  // When set, SSH into restartHostId and run `pm2 restart <restartPm2Process>` each time this rule fires (and again on each renotify while still firing)
+  restartOnFire: { type: Boolean, default: false },
+  restartHostId: { type: Schema.Types.ObjectId, ref: 'Host', default: null },
+  restartPm2Process: { type: String, default: null, trim: true },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 });

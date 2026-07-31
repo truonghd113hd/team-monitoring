@@ -11,6 +11,9 @@ node_modules/
 # Google Sheets credentials (sensitive)
 credentials.json
 
+# SSH private keys for host monitoring/restart (sensitive)
+ssh-keys/*
+
 # OS files
 .DS_Store
 .DS_Store?

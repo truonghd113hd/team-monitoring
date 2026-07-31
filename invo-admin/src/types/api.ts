@@ -252,6 +252,9 @@ export interface AlertRule {
   forMinutes: number;
   renotifyMinutes: number;
   enabled: boolean;
+  restartOnFire: boolean;
+  restartHostId: string | null;
+  restartPm2Process: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
