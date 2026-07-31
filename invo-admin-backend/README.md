@@ -62,6 +62,20 @@ Backend sử dụng Google Sheets API với Service Account authentication:
 
 ## API Endpoints
 
+### Authentication
+- `POST /api/auth/login` - Đăng nhập, trả về JWT token
+  ```json
+  { "email": "admin@example.com", "password": "..." }
+  ```
+- `GET /api/auth/me` - Lấy thông tin user hiện tại (yêu cầu JWT)
+- `GET /api/auth/users` - Danh sách users (admin only)
+- `POST /api/auth/users` - Tạo user mới (admin only)
+- `PUT /api/auth/users/:id` - Cập nhật user: name/role/isActive, và reset password nếu gửi kèm `password` (admin only). Password luôn được hash qua `user.save()` — không dùng `findByIdAndUpdate` để tránh lưu plaintext.
+- `DELETE /api/auth/users/:id` - Xóa user (admin only)
+- `PUT /api/auth/change-password` - User tự đổi password (yêu cầu `currentPassword` + `newPassword`). **Lưu ý**: chưa có UI nào ở frontend gọi endpoint này — trang Settings > Team Users hiện dùng `PUT /api/auth/users/:id` cho cả việc admin tự đổi password của mình.
+
+Tất cả routes khác (`/api/projects`, `/api/files`, `/api/issues`, ...) yêu cầu JWT hợp lệ qua header `Authorization: Bearer <token>`.
+
 ### Projects
 - `GET /api/projects` - Lấy danh sách projects (có stats)
 - `GET /api/projects/:id` - Lấy chi tiết project
@@ -245,4 +259,42 @@ docker compose up -d
 PORT=5000
 MONGODB_URI=mongodb://localhost:27017/invo-admin
 NODE_ENV=development
+
+# Auth
+JWT_SECRET=...
+JWT_EXPIRES_IN=7d          # optional, default 7d
+
+# Telegram alerts
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+
+# GitHub Projects sync (optional)
+PERSONAL_TOKEN=ghp_...
+GITHUB_OWNER=
+GITHUB_PROJECT_NUMBER=
+GITHUB_REPO=
+
+# Only used by `npm run seed:admin` — not read at server runtime
+ADMIN_EMAIL=admin@example.com
+ADMIN_PASSWORD=Admin@123456
+ADMIN_NAME=Admin
 ```
+
+When running via the root `docker-compose.yml`, `MONGODB_URI` and `NODE_ENV` are overridden by the `backend.environment` block in that file rather than this `.env` — see [Production Deployment](#production-deployment) below.
+
+## Production Deployment
+
+The root of the monorepo (`docker-compose.yml`, `Caddyfile`/`deploy/nginx/`, root `.env`) drives the actual VPS deployment. Summary of how this backend fits in:
+
+- **Reverse proxy / TLS**: the VPS runs its own system nginx (shared with other projects) rather than a container. `deploy/nginx/monitoring.invoring.com.conf` proxies `api.monitoring.invoring.com` → `127.0.0.1:5001` (mapped to the backend container's port 5000) and `monitoring.invoring.com` → `127.0.0.1:3001` (frontend). TLS is managed by `certbot --nginx`.
+- **MongoDB auth**: the compose-managed mongodb runs with `--auth` enabled. Root credentials live in a root-level `.env` (`MONGO_ROOT_USERNAME` / `MONGO_ROOT_PASSWORD`, gitignored) and are injected into the backend's `MONGODB_URI` via `docker-compose.yml` — see that file's `backend.environment`.
+- **Applying `.env` changes**: editing `invo-admin-backend/.env` on the VPS has no effect until the container is recreated — a plain `restart` keeps the old env baked in:
+  ```bash
+  docker compose up -d --force-recreate backend
+  ```
+  `NEXT_PUBLIC_*` vars for the frontend are baked in at build time instead, so those need `docker compose up -d --build frontend`.
+- **Seeding/resetting the admin user** on a running container (image only ships `dist/`, not `ts-node`):
+  ```bash
+  docker compose exec backend node dist/scripts/seedAdmin.js
+  ```
+- **Known gotcha**: resetting a password via `PUT /api/auth/users/:id` must go through `user.save()` (see Authentication section above) — an earlier version of this route used `findByIdAndUpdate`, which skips the `pre('save')` bcrypt hashing hook and silently stores the password as plaintext, breaking login. If a login ever fails right after a password reset, check whether the stored `password` field looks like a bcrypt hash (`$2a$12$...`) rather than plaintext.

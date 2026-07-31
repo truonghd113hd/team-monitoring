@@ -29,6 +29,9 @@ export default function ProjectDetailPage() {
   const [showNewEnv, setShowNewEnv] = useState(false);
   const [showNewEndpoint, setShowNewEndpoint] = useState(false);
   const [showNewHost, setShowNewHost] = useState(false);
+  const [editEnv, setEditEnv] = useState<MonitorEnvironment | null>(null);
+  const [editEndpoint, setEditEndpoint] = useState<MonitorEndpoint | null>(null);
+  const [editHost, setEditHost] = useState<MonitorHost | null>(null);
   const [envForm, setEnvForm] = useState({ name: '', color: '#3b82f6' });
   const [epForm, setEpForm] = useState({ name: '', url: '', method: 'GET' as 'GET' | 'POST' | 'HEAD', expectedStatus: 200, timeoutMs: 10000 });
   const [hostForm, setHostForm] = useState({ name: '', mode: 'agent', sshHost: '', sshPort: 22, sshUser: '', sshKey: '' });
@@ -112,40 +115,81 @@ export default function ProjectDetailPage() {
     }
   };
 
-  const handleCreateEnv = async (e: React.FormEvent) => {
+  const openEditEnv = (env: MonitorEnvironment) => {
+    setEnvForm({ name: env.name, color: env.color });
+    setEditEnv(env);
+  };
+
+  const closeEnvModal = () => { setShowNewEnv(false); setEditEnv(null); };
+
+  const handleSaveEnv = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await monitoringApi.createEnvironment(projectId, envForm);
-      setShowNewEnv(false);
+      if (editEnv) {
+        await monitoringApi.updateEnvironment(editEnv._id, envForm);
+      } else {
+        await monitoringApi.createEnvironment(projectId, envForm);
+      }
+      closeEnvModal();
       await load();
     } catch (err) { alert((err as Error).message); }
     finally { setSaving(false); }
   };
 
-  const handleCreateEndpoint = async (e: React.FormEvent) => {
+  const openEditEndpoint = (ep: MonitorEndpoint) => {
+    setEpForm({ name: ep.name, url: ep.url, method: ep.method, expectedStatus: ep.expectedStatus, timeoutMs: ep.timeoutMs });
+    setEditEndpoint(ep);
+  };
+
+  const closeEndpointModal = () => { setShowNewEndpoint(false); setEditEndpoint(null); };
+
+  const handleSaveEndpoint = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeEnvId) return;
     setSaving(true);
     try {
-      await monitoringApi.createEndpoint(activeEnvId, epForm);
-      setShowNewEndpoint(false);
+      if (editEndpoint) {
+        await monitoringApi.updateEndpoint(editEndpoint._id, epForm);
+      } else {
+        if (!activeEnvId) return;
+        await monitoringApi.createEndpoint(activeEnvId, epForm);
+      }
+      closeEndpointModal();
       await load();
     } catch (err) { alert((err as Error).message); }
     finally { setSaving(false); }
   };
 
-  const handleCreateHost = async (e: React.FormEvent) => {
+  const openEditHost = (host: MonitorHost) => {
+    const sshConfig = (host as any).sshConfig;
+    setHostForm({
+      name: host.name,
+      mode: host.mode,
+      sshHost: sshConfig?.host ?? '',
+      sshPort: sshConfig?.port ?? 22,
+      sshUser: sshConfig?.user ?? '',
+      sshKey: sshConfig?.privateKeyPath ?? ''
+    });
+    setEditHost(host);
+  };
+
+  const closeHostModal = () => { setShowNewHost(false); setEditHost(null); };
+
+  const handleSaveHost = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!activeEnvId) return;
     setSaving(true);
     try {
       const payload: any = { name: hostForm.name, mode: hostForm.mode };
       if (hostForm.mode === 'ssh') {
         payload.sshConfig = { host: hostForm.sshHost, port: hostForm.sshPort, user: hostForm.sshUser, privateKeyPath: hostForm.sshKey };
       }
-      await monitoringApi.createHost(activeEnvId, payload);
-      setShowNewHost(false);
+      if (editHost) {
+        await monitoringApi.updateHost(editHost._id, payload);
+      } else {
+        if (!activeEnvId) return;
+        await monitoringApi.createHost(activeEnvId, payload);
+      }
+      closeHostModal();
       await load();
     } catch (err) { alert((err as Error).message); }
     finally { setSaving(false); }
@@ -190,16 +234,24 @@ export default function ProjectDetailPage() {
         {/* Environment tabs */}
         <div className="flex items-center gap-2 mb-6 flex-wrap">
           {tabs.map(t => (
-            <button
-              key={t.env._id}
-              onClick={() => setActiveEnvId(t.env._id)}
-              className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${activeEnvId === t.env._id ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
-            >
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: t.env.color }} />
-              {t.env.name}
-            </button>
+            <div key={t.env._id} className="group relative flex items-center">
+              <button
+                onClick={() => setActiveEnvId(t.env._id)}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${activeEnvId === t.env._id ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700'}`}
+              >
+                <span className="w-2 h-2 rounded-full" style={{ backgroundColor: t.env.color }} />
+                {t.env.name}
+              </button>
+              <button
+                onClick={e => { e.stopPropagation(); openEditEnv(t.env); }}
+                title="Edit environment"
+                className={`absolute -right-1 -top-1 p-0.5 rounded-full bg-white dark:bg-slate-700 shadow border border-slate-200 dark:border-slate-600 opacity-0 group-hover:opacity-100 transition-opacity ${activeEnvId === t.env._id ? 'text-primary' : 'text-slate-400'} hover:text-primary`}
+              >
+                <span className="material-symbols-outlined text-[12px] block">edit</span>
+              </button>
+            </div>
           ))}
-          <button onClick={() => setShowNewEnv(true)} className="px-3 py-1.5 rounded-lg text-sm font-medium border border-dashed border-slate-300 dark:border-slate-600 text-slate-400 hover:border-primary hover:text-primary transition-all">
+          <button onClick={() => { setEnvForm({ name: '', color: '#3b82f6' }); setShowNewEnv(true); }} className="px-3 py-1.5 rounded-lg text-sm font-medium border border-dashed border-slate-300 dark:border-slate-600 text-slate-400 hover:border-primary hover:text-primary transition-all">
             + Add env
           </button>
         </div>
@@ -210,7 +262,7 @@ export default function ProjectDetailPage() {
             <section>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold dark:text-white">Endpoints ({activeTab.endpoints.length})</h3>
-                <button onClick={() => setShowNewEndpoint(true)} className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-lg font-semibold hover:bg-primary hover:text-white transition-all">
+                <button onClick={() => { setEpForm({ name: '', url: '', method: 'GET', expectedStatus: 200, timeoutMs: 10000 }); setShowNewEndpoint(true); }} className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-lg font-semibold hover:bg-primary hover:text-white transition-all">
                   + Add endpoint
                 </button>
               </div>
@@ -250,6 +302,9 @@ export default function ProjectDetailPage() {
                               <button onClick={() => handleCheckNow(ep._id)} title="Check now" className="p-1 text-slate-400 hover:text-primary transition-colors">
                                 <span className="material-symbols-outlined text-sm">refresh</span>
                               </button>
+                              <button onClick={() => openEditEndpoint(ep)} title="Edit" className="p-1 text-slate-400 hover:text-primary transition-colors">
+                                <span className="material-symbols-outlined text-sm">edit</span>
+                              </button>
                               <button onClick={() => handleDeleteEndpoint(ep._id, ep.name)} title="Delete" className="p-1 text-slate-400 hover:text-red-500 transition-colors">
                                 <span className="material-symbols-outlined text-sm">delete</span>
                               </button>
@@ -267,7 +322,7 @@ export default function ProjectDetailPage() {
             <section>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold dark:text-white">Hosts ({activeTab.hosts.length})</h3>
-                <button onClick={() => setShowNewHost(true)} className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-lg font-semibold hover:bg-primary hover:text-white transition-all">
+                <button onClick={() => { setHostForm({ name: '', mode: 'agent', sshHost: '', sshPort: 22, sshUser: '', sshKey: '' }); setShowNewHost(true); }} className="text-xs bg-primary/10 text-primary px-3 py-1 rounded-lg font-semibold hover:bg-primary hover:text-white transition-all">
                   + Add host
                 </button>
               </div>
@@ -283,7 +338,10 @@ export default function ProjectDetailPage() {
                         </Link>
                         <div className="flex items-center gap-1">
                           <span className="text-[10px] bg-slate-100 dark:bg-slate-700 text-slate-400 px-1.5 py-0.5 rounded font-mono">{host.mode}</span>
-                          <button onClick={() => handleDeleteHost(host._id, host.name)} className="p-1 text-slate-400 hover:text-red-500 transition-colors">
+                          <button onClick={() => openEditHost(host)} title="Edit" className="p-1 text-slate-400 hover:text-primary transition-colors">
+                            <span className="material-symbols-outlined text-sm">edit</span>
+                          </button>
+                          <button onClick={() => handleDeleteHost(host._id, host.name)} title="Delete" className="p-1 text-slate-400 hover:text-red-500 transition-colors">
                             <span className="material-symbols-outlined text-sm">delete</span>
                           </button>
                         </div>
@@ -317,11 +375,11 @@ export default function ProjectDetailPage() {
         )}
 
         {/* Modals */}
-        {showNewEnv && (
+        {(showNewEnv || editEnv) && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-              <h3 className="text-lg font-bold dark:text-white mb-4">Add Environment</h3>
-              <form onSubmit={handleCreateEnv} className="space-y-4">
+              <h3 className="text-lg font-bold dark:text-white mb-4">{editEnv ? 'Edit Environment' : 'Add Environment'}</h3>
+              <form onSubmit={handleSaveEnv} className="space-y-4">
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Name *</label>
                   <input required value={envForm.name} onChange={e => setEnvForm(f => ({ ...f, name: e.target.value }))}
@@ -333,9 +391,9 @@ export default function ProjectDetailPage() {
                   <input type="color" value={envForm.color} onChange={e => setEnvForm(f => ({ ...f, color: e.target.value }))} className="h-8 w-16 rounded cursor-pointer" />
                 </div>
                 <div className="flex gap-2 justify-end">
-                  <button type="button" onClick={() => setShowNewEnv(false)} className="px-4 py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                  <button type="button" onClick={closeEnvModal} className="px-4 py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
                   <button type="submit" disabled={saving} className="px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-white hover:bg-blue-600 disabled:opacity-50">
-                    {saving ? 'Adding…' : 'Add'}
+                    {saving ? 'Saving…' : editEnv ? 'Save' : 'Add'}
                   </button>
                 </div>
               </form>
@@ -343,11 +401,11 @@ export default function ProjectDetailPage() {
           </div>
         )}
 
-        {showNewEndpoint && (
+        {(showNewEndpoint || editEndpoint) && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-              <h3 className="text-lg font-bold dark:text-white mb-4">Add Endpoint</h3>
-              <form onSubmit={handleCreateEndpoint} className="space-y-3">
+              <h3 className="text-lg font-bold dark:text-white mb-4">{editEndpoint ? 'Edit Endpoint' : 'Add Endpoint'}</h3>
+              <form onSubmit={handleSaveEndpoint} className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Name *</label>
                   <input required value={epForm.name} onChange={e => setEpForm(f => ({ ...f, name: e.target.value }))}
@@ -380,9 +438,9 @@ export default function ProjectDetailPage() {
                     className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-600 dark:bg-slate-700 dark:text-white text-sm focus:outline-none" />
                 </div>
                 <div className="flex gap-2 justify-end pt-1">
-                  <button type="button" onClick={() => setShowNewEndpoint(false)} className="px-4 py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                  <button type="button" onClick={closeEndpointModal} className="px-4 py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
                   <button type="submit" disabled={saving} className="px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-white hover:bg-blue-600 disabled:opacity-50">
-                    {saving ? 'Adding…' : 'Add'}
+                    {saving ? 'Saving…' : editEndpoint ? 'Save' : 'Add'}
                   </button>
                 </div>
               </form>
@@ -390,11 +448,11 @@ export default function ProjectDetailPage() {
           </div>
         )}
 
-        {showNewHost && (
+        {(showNewHost || editHost) && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-md shadow-2xl">
-              <h3 className="text-lg font-bold dark:text-white mb-4">Add Host</h3>
-              <form onSubmit={handleCreateHost} className="space-y-3">
+              <h3 className="text-lg font-bold dark:text-white mb-4">{editHost ? 'Edit Host' : 'Add Host'}</h3>
+              <form onSubmit={handleSaveHost} className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Name *</label>
                   <input required value={hostForm.name} onChange={e => setHostForm(f => ({ ...f, name: e.target.value }))}
@@ -439,9 +497,9 @@ export default function ProjectDetailPage() {
                   </>
                 )}
                 <div className="flex gap-2 justify-end pt-1">
-                  <button type="button" onClick={() => setShowNewHost(false)} className="px-4 py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                  <button type="button" onClick={closeHostModal} className="px-4 py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
                   <button type="submit" disabled={saving} className="px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-white hover:bg-blue-600 disabled:opacity-50">
-                    {saving ? 'Adding…' : 'Add'}
+                    {saving ? 'Saving…' : editHost ? 'Save' : 'Add'}
                   </button>
                 </div>
               </form>

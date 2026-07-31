@@ -19,6 +19,7 @@ export default function HostDetailPage() {
   const [loading, setLoading] = useState(true);
   const [rotating, setRotating] = useState(false);
   const [showAddRule, setShowAddRule] = useState(false);
+  const [editRule, setEditRule] = useState<AlertRule | null>(null);
   const [ruleForm, setRuleForm] = useState({
     name: '', condition: 'cpuPct>80', forMinutes: 5, renotifyMinutes: 60,
     restartOnFire: false, restartHostId: '', restartPm2Process: ''
@@ -69,18 +70,41 @@ export default function HostDetailPage() {
     finally { setRotating(false); }
   };
 
-  const handleAddRule = async (e: React.FormEvent) => {
+  const closeRuleModal = () => {
+    setShowAddRule(false);
+    setEditRule(null);
+    setRuleForm({ name: '', condition: 'cpuPct>80', forMinutes: 5, renotifyMinutes: 60, restartOnFire: false, restartHostId: '', restartPm2Process: '' });
+  };
+
+  const openEditRule = (rule: AlertRule) => {
+    setRuleForm({
+      name: rule.name,
+      condition: rule.condition,
+      forMinutes: rule.forMinutes,
+      renotifyMinutes: rule.renotifyMinutes,
+      restartOnFire: rule.restartOnFire,
+      restartHostId: rule.restartHostId || '',
+      restartPm2Process: rule.restartPm2Process || ''
+    });
+    setEditRule(rule);
+  };
+
+  const handleSaveRule = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
     try {
-      await monitoringApi.createAlertRule({
+      const payload = {
         ...ruleForm,
         restartHostId: ruleForm.restartOnFire ? ruleForm.restartHostId || null : null,
         restartPm2Process: ruleForm.restartOnFire ? ruleForm.restartPm2Process || null : null,
-        targetType: 'host', targetId: hostId, projectId
-      });
-      setShowAddRule(false);
-      setRuleForm({ name: '', condition: 'cpuPct>80', forMinutes: 5, renotifyMinutes: 60, restartOnFire: false, restartHostId: '', restartPm2Process: '' });
+        targetType: 'host' as const, targetId: hostId, projectId
+      };
+      if (editRule) {
+        await monitoringApi.updateAlertRule(editRule._id, payload);
+      } else {
+        await monitoringApi.createAlertRule(payload);
+      }
+      closeRuleModal();
       await load();
     } catch (err) { alert((err as Error).message); }
     finally { setSaving(false); }
@@ -224,7 +248,7 @@ pm2 start "npx ts-node agent.ts" --name monitor-agent
             <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-slate-200 dark:border-slate-700 p-4">
               <div className="flex items-center justify-between mb-3">
                 <p className="text-xs font-semibold text-slate-400">ALERT RULES</p>
-                <button onClick={() => setShowAddRule(true)} className="text-xs bg-primary/10 text-primary px-2 py-1 rounded font-semibold hover:bg-primary hover:text-white transition-all">+ Add rule</button>
+                <button onClick={() => { closeRuleModal(); setShowAddRule(true); }} className="text-xs bg-primary/10 text-primary px-2 py-1 rounded font-semibold hover:bg-primary hover:text-white transition-all">+ Add rule</button>
               </div>
               {rules.length === 0 ? <p className="text-sm text-slate-400">No rules configured</p> : (
                 <div className="space-y-2">
@@ -240,9 +264,14 @@ pm2 start "npx ts-node agent.ts" --name monitor-agent
                           </span>
                         )}
                       </div>
-                      <button onClick={() => handleDeleteRule(r._id)} className="text-slate-400 hover:text-red-500 transition-colors">
-                        <span className="material-symbols-outlined text-sm">delete</span>
-                      </button>
+                      <div className="flex items-center gap-1">
+                        <button onClick={() => openEditRule(r)} title="Edit" className="text-slate-400 hover:text-primary transition-colors">
+                          <span className="material-symbols-outlined text-sm">edit</span>
+                        </button>
+                        <button onClick={() => handleDeleteRule(r._id)} title="Delete" className="text-slate-400 hover:text-red-500 transition-colors">
+                          <span className="material-symbols-outlined text-sm">delete</span>
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -301,11 +330,11 @@ pm2 start "npx ts-node agent.ts" --name monitor-agent
           </div>
         )}
 
-        {showAddRule && (
+        {(showAddRule || editRule) && (
           <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <div className="bg-white dark:bg-slate-800 rounded-2xl p-6 w-full max-w-sm shadow-2xl">
-              <h3 className="text-lg font-bold dark:text-white mb-4">Add Alert Rule</h3>
-              <form onSubmit={handleAddRule} className="space-y-3">
+              <h3 className="text-lg font-bold dark:text-white mb-4">{editRule ? 'Edit Alert Rule' : 'Add Alert Rule'}</h3>
+              <form onSubmit={handleSaveRule} className="space-y-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-500 mb-1">Name *</label>
                   <input required value={ruleForm.name} onChange={e => setRuleForm(f => ({ ...f, name: e.target.value }))}
@@ -365,9 +394,9 @@ pm2 start "npx ts-node agent.ts" --name monitor-agent
                   )}
                 </div>
                 <div className="flex gap-2 justify-end pt-1">
-                  <button type="button" onClick={() => setShowAddRule(false)} className="px-4 py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
+                  <button type="button" onClick={closeRuleModal} className="px-4 py-2 rounded-lg text-sm text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-700">Cancel</button>
                   <button type="submit" disabled={saving} className="px-4 py-2 rounded-lg text-sm font-semibold bg-primary text-white hover:bg-blue-600 disabled:opacity-50">
-                    {saving ? 'Adding…' : 'Add'}
+                    {saving ? 'Saving…' : editRule ? 'Save' : 'Add'}
                   </button>
                 </div>
               </form>
