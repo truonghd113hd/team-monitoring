@@ -64,15 +64,16 @@ router.put('/users/:id', authenticate, requireAdmin, async (req: Request, res: R
       res.status(400).json({ success: false, message: 'Cannot demote your own admin account' });
       return;
     }
-    const allowed: any = {};
-    if (req.body.name !== undefined) allowed.name = req.body.name;
-    if (req.body.role !== undefined) allowed.role = req.body.role;
-    if (req.body.isActive !== undefined) allowed.isActive = req.body.isActive;
-    // Allow password reset by admin
-    if (req.body.password) allowed.password = req.body.password;
-
-    const user = await User.findByIdAndUpdate(req.params.id, allowed, { new: true, runValidators: true });
+    const user = await User.findById(req.params.id);
     if (!user) { res.status(404).json({ success: false, message: 'User not found' }); return; }
+
+    if (req.body.name !== undefined) user.name = req.body.name;
+    if (req.body.role !== undefined) user.role = req.body.role;
+    if (req.body.isActive !== undefined) user.isActive = req.body.isActive;
+    // Allow password reset by admin — set via the document so the pre('save') hook hashes it
+    if (req.body.password) user.password = req.body.password;
+
+    await user.save();
     res.json({ success: true, data: user });
   } catch (err) {
     res.status(500).json({ success: false, message: (err as Error).message });
