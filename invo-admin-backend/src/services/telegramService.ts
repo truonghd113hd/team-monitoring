@@ -19,6 +19,7 @@ export const sendTelegramMessage = async (
 
   try {
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
+    console.log(`[TELEGRAM] Sending to chatId=${chatId} (override=${!!chatIdOverride})`);
     await axios.post(url, {
       chat_id: chatId,
       text: message,
@@ -26,6 +27,16 @@ export const sendTelegramMessage = async (
     });
     console.log('[TELEGRAM] Message sent successfully');
   } catch (error) {
-    console.error('[TELEGRAM] Failed to send message:', (error as any).message);
+    const err = error as any;
+    console.error(
+      '[TELEGRAM] Failed to send message:',
+      err.message,
+      '| chatId used:',
+      chatId,
+      '| status:',
+      err.response?.status,
+      '| response body:',
+      JSON.stringify(err.response?.data)
+    );
   }
 };
